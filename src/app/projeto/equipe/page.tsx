@@ -211,14 +211,27 @@ export default function EquipePage() {
           </div>
           {snap.sprints.length === 0 && <p className="hint">Nenhum sprint cadastrado.</p>}
           {snap.sprints.map((sp) => (
-            <div className="sprint-row" key={sp.id} style={{ marginBottom: 6 }}>
-              <input id={`sp-name-${sp.id}`} className="input" defaultValue={sp.name} disabled={!p.canEdit}
-                onBlur={(e) => e.target.value.trim() && e.target.value !== sp.name && void p.updateSprint({ ...sp, name: e.target.value.trim() })} />
-              <input id={`sp-start-${sp.id}`} className="input" type="date" defaultValue={sp.start} disabled={!p.canEdit}
-                onBlur={(e) => e.target.value && e.target.value !== sp.start && void p.updateSprint({ ...sp, start: e.target.value })} />
-              <input id={`sp-end-${sp.id}`} className="input" type="date" defaultValue={sp.end} disabled={!p.canEdit}
-                onBlur={(e) => e.target.value && e.target.value !== sp.end && void p.updateSprint({ ...sp, end: e.target.value })} />
-              {p.canEdit && <ConfirmButton className="small" label="Remover" confirmLabel="Confirmar" onConfirm={() => void p.deleteSprint(sp.id)} />}
+            <div className="sprint-row" key={sp.id}>
+              <label className="sprint-field sprint-name">
+                <span>Nome do sprint</span>
+                <input id={`sp-name-${sp.id}`} className="input" defaultValue={sp.name} disabled={!p.canEdit} placeholder="Ex.: Sprint 1 · Protótipo"
+                  onBlur={(e) => e.target.value.trim() && e.target.value !== sp.name && void p.updateSprint({ ...sp, name: e.target.value.trim() })} />
+              </label>
+              <label className="sprint-field">
+                <span>Início</span>
+                <input id={`sp-start-${sp.id}`} className="input" type="date" defaultValue={sp.start} disabled={!p.canEdit}
+                  onBlur={(e) => e.target.value && e.target.value !== sp.start && void p.updateSprint({ ...sp, start: e.target.value })} />
+              </label>
+              <label className="sprint-field">
+                <span>Fim</span>
+                <input id={`sp-end-${sp.id}`} className="input" type="date" defaultValue={sp.end} disabled={!p.canEdit}
+                  onBlur={(e) => e.target.value && e.target.value !== sp.end && void p.updateSprint({ ...sp, end: e.target.value })} />
+              </label>
+              {p.canEdit && (
+                <div className="sprint-remove">
+                  <ConfirmButton className="small" label="Remover" confirmLabel="Confirmar" onConfirm={() => void p.deleteSprint(sp.id)} />
+                </div>
+              )}
             </div>
           ))}
           {p.canEdit && (

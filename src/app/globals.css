@@ -1043,13 +1043,52 @@ textarea.input {
 }
 .sprint-row {
   display: grid;
-  grid-template-columns: 1.1fr 1fr 1fr auto;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 8px 10px;
+  align-items: end;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.sprint-row:first-of-type {
+  padding-top: 4px;
+}
+.sprint-row + .btn,
+.sprint-row:last-of-type {
+  margin-bottom: 12px;
+}
+.sprint-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.sprint-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.sprint-field .input {
+  width: 100%;
+  min-width: 0;
+}
+.sprint-name {
+  grid-column: 1 / -1;
+}
+.sprint-name .input {
+  font-size: 15px;
+  font-weight: 600;
+}
+.sprint-remove {
+  display: flex;
   align-items: center;
+  min-height: 38px;
 }
 @media (max-width: 460px) {
   .sprint-row {
     grid-template-columns: 1fr 1fr;
+  }
+  .sprint-remove {
+    grid-column: 1 / -1;
   }
 }
 .code {
