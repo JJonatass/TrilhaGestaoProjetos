@@ -2032,3 +2032,64 @@ fieldset.plain {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+
+/* política de privacidade */
+.auth-legal {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.auth-legal a {
+  color: var(--muted);
+}
+.legal {
+  min-height: 100%;
+  padding: 32px var(--gutter-r) 48px var(--gutter-l);
+  background: var(--bg);
+}
+.legal-card {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 28px clamp(18px, 4vw, 40px);
+  line-height: 1.6;
+}
+.legal-card h1 {
+  font-size: 30px;
+  margin: 10px 0 2px;
+}
+.legal-card h2 {
+  font-size: 18px;
+  margin: 26px 0 6px;
+}
+.legal-card ul {
+  padding-left: 20px;
+}
+.legal-card li {
+  margin-bottom: 6px;
+}
+.legal-card a {
+  color: var(--accent);
+}
+.legal-card code {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 0.9em;
+  background: var(--accent-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.legal-back {
+  margin-top: 28px;
+}
+
+.loading-legal {
+  position: fixed;
+  bottom: 14px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}

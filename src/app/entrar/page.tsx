@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import { friendlyError } from '../../data/repo'
 import { useAuth } from '../../state/AuthProvider'
@@ -102,6 +103,9 @@ export default function EntrarPage() {
           {mode !== 'cadastrar' && <button type="button" className="link" onClick={() => setMode('cadastrar')}>Criar conta</button>}
           {mode !== 'senha' && <button type="button" className="link" onClick={() => setMode('senha')}>Esqueci a senha</button>}
         </div>
+        <p className="auth-legal">
+          <Link href="/privacidade/">Política de privacidade</Link>
+        </p>
       </div>
     </div>
   )

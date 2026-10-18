@@ -23,18 +23,28 @@ function Frame({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const isAuthPage = pathname === '/entrar'
   const isFilePage = pathname === '/arquivo'
+  const isPublicPage = pathname === '/privacidade'
 
   useEffect(() => {
-    if (loading || isFilePage) return
+    if (loading || isFilePage || isPublicPage) return
     if (!session && !isAuthPage) router.replace('/entrar/')
     if (session && isAuthPage) router.replace('/')
-  }, [loading, session, isAuthPage, isFilePage, router])
+  }, [loading, session, isAuthPage, isFilePage, isPublicPage, router])
+
+  // Páginas públicas (política de privacidade): abrem sem login e sem moldura
+  if (isPublicPage) return <>{children}</>
 
   // O modo arquivo funciona sem conta no sistema: só com o Google Drive do aluno
   if (isFilePage && !session) return <>{children}</>
 
   if (loading || (!session && !isAuthPage) || (session && isAuthPage)) {
-    return <div className="loading">Carregando…</div>
+    return (
+      <div className="loading">
+        Carregando…
+        {/* link visível já no HTML estático: o Google confere que a página inicial aponta para a política */}
+        <Link href="/privacidade/" className="loading-legal">Política de privacidade</Link>
+      </div>
+    )
   }
   if (isAuthPage) return <>{children}</>
 
