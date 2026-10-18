@@ -11,7 +11,7 @@ Kanban, Gantt, burndown, fluxo cumulativo e painel de indicadores para projetos 
 ## 1. Banco de dados
 
 O banco do projeto **trilha** no Supabase já está criado e testado. Falta só ajustar os endereços de login em **Authentication → URL Configuration**:
-- **Site URL**: o endereço onde o app ficará (ex.: `https://SEU-USUARIO.github.io/trilha-supabase/`)
+- **Site URL**: `https://trilha-gestao-projetos.vercel.app`
 - **Redirect URLs**: inclua também `http://localhost:3000/` para desenvolvimento.
 
 Para montar o mesmo banco em outro projeto Supabase, cole [`supabase/setup.sql`](supabase/setup.sql) no **SQL Editor** e clique em **Run**.
@@ -31,9 +31,7 @@ O arquivo `.env.local` já aponta para o projeto **trilha**. A chave é a public
 
 ## 3. Publicar (gratuito)
 
-GitHub Pages: suba para um repositório, em **Settings → Pages** escolha **GitHub Actions**, e em **Settings → Secrets and variables → Actions → Variables** crie `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Cada push na `main` publica (`.github/workflows/deploy.yml`).
-
-Na Vercel, basta importar o repositório e definir as mesmas duas variáveis.
+O app está publicado na **Vercel** (plano gratuito): **https://trilha-gestao-projetos.vercel.app**. O projeto `trilha-gestao-projetos` da Vercel está ligado a este repositório, e cada push na `main` publica sozinho. As chaves vêm do `.env.local`.
 
 ## Prazo, relatório e Google Drive
 
@@ -50,7 +48,7 @@ Na Vercel, basta importar o repositório e definir as mesmas duas variáveis.
 1. No [Google Cloud Console](https://console.cloud.google.com/), crie um projeto e ative a **Google Drive API**.
 2. Configure a **tela de consentimento OAuth** (Externo) com o escopo `.../auth/drive.file`. Em modo Teste, inclua os e-mails dos alunos em **Usuários de teste** (até 100), ou publique o app.
 3. Em **Credenciais → ID do cliente OAuth → Aplicativo da Web**, cadastre as **Origens JavaScript autorizadas**: `http://localhost:3000` e o endereço onde o app for publicado.
-4. Coloque o Client ID em `NEXT_PUBLIC_GOOGLE_CLIENT_ID` no `.env.local` (e nas variáveis do GitHub/Vercel) e reinicie o `npm run dev`.
+4. Coloque o Client ID em `NEXT_PUBLIC_GOOGLE_CLIENT_ID` no `.env.local` (e nas variáveis do projeto na Vercel) e reinicie o `npm run dev`.
 
 O escopo `drive.file` só dá acesso aos arquivos que o próprio Trilha criou: o sistema não enxerga mais nada no Drive do aluno.
 
