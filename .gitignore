@@ -1,0 +1,8 @@
+node_modules
+.next
+out
+public/sql-wasm.wasm
+.env
+
+next-env.d.ts
+*.tsbuildinfo
