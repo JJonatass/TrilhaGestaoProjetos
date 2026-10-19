@@ -102,6 +102,7 @@ export interface ProjectMeta {
   createdAt: string
   expiresAt: string | null // prazo de existência definido pelo administrador
   driveExportAllowed: boolean // administrador autorizou salvar no Google Drive
+  maxMembers: number | null // limite de integrantes definido pelo administrador (null = sem limite)
 }
 
 export interface Snapshot {
@@ -174,6 +175,8 @@ export interface AdminProject {
   unread: number
   expiresAt: string | null
   driveExportAllowed: boolean
+  maxMembers: number | null
+  pendingInvites: number
 }
 
 export interface AdminUser {
@@ -192,4 +195,5 @@ export type TaskDraft = Omit<Task, 'id' | 'createdAt' | 'createdBy' | 'position'
 export interface AdminDefaults {
   expiresAt: string | null
   driveExport: boolean
+  maxMembers: number | null
 }

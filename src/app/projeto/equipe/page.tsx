@@ -22,6 +22,10 @@ export default function EquipePage() {
   const { snap } = p
   const lastSprint = snap.sprints[snap.sprints.length - 1]
   const siteUrl = typeof window === 'undefined' ? '' : `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/`
+  const limit = snap.meta.maxMembers
+  const seatsUsed = snap.members.length + snap.invites.length
+  const seatsLeft = limit === null ? null : Math.max(0, limit - seatsUsed)
+  const teamFull = seatsLeft === 0
   const openTasks = (uid: string) => snap.tasks.filter((t) => t.status !== 'done' && t.assignees.includes(uid)).length
 
   const sendInvite = async () => {
@@ -45,6 +49,11 @@ export default function EquipePage() {
               <h2>Integrantes</h2>
               <p>Criador gerencia o projeto e define responsáveis. Editor altera tarefas. Leitor só acompanha.</p>
             </div>
+            {limit !== null && (
+              <span className={`seats ${teamFull ? 'full' : ''}`} title="Limite definido pelo administrador. Convites pendentes também ocupam vaga.">
+                {snap.members.length} de {limit} integrantes
+              </span>
+            )}
           </div>
           <div className="list">
             {snap.members.map((m) => (
@@ -116,8 +125,15 @@ export default function EquipePage() {
                   </select>
                 </Field>
               </div>
-              <button type="submit" className="btn primary">Convidar</button>
+              <button type="submit" className="btn primary" disabled={teamFull}>Convidar</button>
             </form>
+            {limit !== null && (
+              <p className={teamFull ? 'form-error' : 'hint'} style={{ marginTop: 8 }}>
+                {teamFull
+                  ? `A equipe está completa (limite de ${limit} integrantes, contando convites pendentes). Para convidar outra pessoa, cancele um convite ou fale com o administrador.`
+                  : `${seatsLeft === 1 ? 'Resta 1 vaga' : `Restam ${seatsLeft} vagas`} nesta equipe (limite de ${limit}, contando convites pendentes).`}
+              </p>
+            )}
             <div className="share-row">
               <span className="hint">Envie o endereço do sistema para a pessoa:</span>
               <span className="code">{siteUrl}</span>

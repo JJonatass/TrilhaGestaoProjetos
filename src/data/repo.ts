@@ -72,6 +72,7 @@ export interface Repo {
   /** ids nulo = todos os projetos; date nulo = sem prazo */
   adminSetExpiry(ids: string[] | null, date: string | null): Promise<number>
   adminSetDriveExport(ids: string[] | null, allowed: boolean): Promise<number>
+  adminSetMaxMembers(ids: string[] | null, max: number | null): Promise<number>
   adminGetDefaults(): Promise<AdminDefaults>
   adminSetDefaults(d: AdminDefaults): Promise<void>
 }
@@ -105,6 +106,7 @@ export function friendlyError(e: unknown): string {
     [/Password should be at least/i, 'A senha precisa ter pelo menos 6 caracteres.'],
     [/row-level security|permission denied/i, 'Você não tem permissão para fazer isso neste projeto.'],
     [/duplicate key.*project_invites/i, 'Este e-mail já foi convidado.'],
+    [/max_members_check|default_max_members_check/i, 'O limite de integrantes precisa ser um número entre 1 e 200.'],
     [/Failed to fetch|NetworkError/i, 'Sem conexão com o servidor. Verifique a internet e tente de novo.'],
     [/rate limit/i, 'Muitas tentativas seguidas. Aguarde um minuto e tente de novo.'],
   ]

@@ -45,6 +45,7 @@ export function parseProjectFile(text: string): ProjectFile {
   p.invites = []
   p.meta.expiresAt ??= null
   p.meta.driveExportAllowed ??= true
+  p.meta.maxMembers ??= null
   p.tasks = p.tasks.map((t) => ({ ...t, assignees: t.assignees ?? [], dependsOn: t.dependsOn ?? [] }))
   return f as ProjectFile
 }

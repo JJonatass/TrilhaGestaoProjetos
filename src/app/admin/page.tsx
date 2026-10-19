@@ -16,8 +16,9 @@ export default function AdminPage() {
   const [filter, setFilter] = useState('')
   const [defaults, setDefaults] = useState<AdminDefaults | null>(null)
   const [bulkDate, setBulkDate] = useState('')
+  const [bulkMax, setBulkMax] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
-  const hPrazo = useHint('ajuda-prazos', 'prazos e Google Drive')
+  const hPrazo = useHint('ajuda-prazos', 'prazos, equipes e Google Drive')
 
   const load = useCallback(async () => {
     if (!repo) return
@@ -109,11 +110,12 @@ export default function AdminPage() {
 
       <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head">
-          <div className="title-row"><h2>Prazos e Google Drive</h2>{hPrazo.button}</div>
+          <div className="title-row"><h2>Prazos, equipes e Google Drive</h2>{hPrazo.button}</div>
         </div>
         {hPrazo.box(
           <>
             <p><b>Prazo de existência:</b> no dia seguinte à data, o projeto é apagado automaticamente (a limpeza roda todo dia às 03:15). Os integrantes veem o aviso 14 dias antes, com os botões para baixar o relatório em PDF e salvar no Google Drive.</p>
+            <p><b>Limite de integrantes:</b> número máximo de pessoas por equipe, contando o criador e os convites ainda não aceitos. Com a equipe cheia, o criador não consegue convidar mais ninguém. Baixar o limite não remove quem já está no projeto. Deixe vazio para não ter limite.</p>
             <p><b>Google Drive:</b> quando autorizado, os integrantes podem salvar o projeto completo como arquivo no próprio Drive e abri-lo depois sem este sistema.</p>
             <p>Você pode definir para cada projeto na tabela abaixo, para todos de uma vez, ou como padrão para os projetos criados daqui em diante.</p>
           </>,
@@ -133,6 +135,24 @@ export default function AdminPage() {
             </div>
             <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => void act(() => repo!.adminSetExpiry(null, null), 'Prazo removido de todos os projetos.')}>
               Remover prazo de todos
+            </button>
+          </div>
+          <div className="bulk-box">
+            <h3>Limite de integrantes para todos</h3>
+            <div className="row">
+              <input id="bulk-max" className="input" type="number" min={1} max={200} placeholder="Ex.: 5" style={{ width: 90 }} value={bulkMax} onChange={(e) => setBulkMax(e.target.value)} />
+              <ConfirmButton
+                className="small"
+                label="Aplicar a todos"
+                confirmLabel={`Confirmar em ${projects?.length ?? 0} projetos`}
+                onConfirm={() => {
+                  const n = parseInt(bulkMax, 10)
+                  if (n >= 1) void act(() => repo!.adminSetMaxMembers(null, n), `Limite de ${n} integrantes aplicado a todos os projetos.`)
+                }}
+              />
+            </div>
+            <button type="button" className="btn small" style={{ alignSelf: 'flex-start' }} onClick={() => void act(() => repo!.adminSetMaxMembers(null, null), 'Limite de integrantes removido de todos os projetos.')}>
+              Remover limite de todos
             </button>
           </div>
           <div className="bulk-box">
@@ -159,6 +179,20 @@ export default function AdminPage() {
                   type="date"
                   value={isoToDay(defaults.expiresAt)}
                   onChange={(e) => setDefaults({ ...defaults, expiresAt: e.target.value ? endOfDayIso(e.target.value) : null })}
+                />
+              </div>
+              <div className="row">
+                <label htmlFor="def-max" className="hint">Máx. integrantes</label>
+                <input
+                  id="def-max"
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={200}
+                  placeholder="sem limite"
+                  style={{ width: 110 }}
+                  value={defaults.maxMembers ?? ''}
+                  onChange={(e) => setDefaults({ ...defaults, maxMembers: e.target.value ? Math.max(1, parseInt(e.target.value, 10) || 1) : null })}
                 />
               </div>
               <label className="switch">
@@ -193,7 +227,31 @@ export default function AdminPage() {
                     <tr key={p.id} className={p.unread ? 'row-alert' : ''}>
                       <td><Link href={`/projeto/?id=${p.id}`} className="strong-link">{p.name}</Link></td>
                       <td>{p.ownerName}<div className="hint">{p.ownerEmail}</div></td>
-                      <td className="num">{p.members}</td>
+                      <td className="num">
+                        <div className="team-cell">
+                          <span className={p.maxMembers !== null && p.members + p.pendingInvites >= p.maxMembers ? 'team-full' : undefined}>
+                            {p.members}
+                          </span>
+                          <span className="hint">de</span>
+                          <input
+                            id={`max-${p.id}`}
+                            className="input"
+                            type="number"
+                            min={1}
+                            max={200}
+                            placeholder="∞"
+                            aria-label={`Limite de integrantes de ${p.name}`}
+                            title="Limite de integrantes (vazio = sem limite)"
+                            defaultValue={p.maxMembers ?? ''}
+                            key={p.maxMembers ?? 'sem'}
+                            onBlur={(e) => {
+                              const v = e.target.value ? parseInt(e.target.value, 10) : null
+                              if (v !== p.maxMembers) void act(() => repo!.adminSetMaxMembers([p.id], v), v ? `Limite de "${p.name}": ${v} integrantes.` : `"${p.name}" sem limite de integrantes.`)
+                            }}
+                          />
+                        </div>
+                        {p.pendingInvites > 0 && <div className="hint team-pending">+{p.pendingInvites} convite{p.pendingInvites > 1 ? 's' : ''} pendente{p.pendingInvites > 1 ? 's' : ''}</div>}
+                      </td>
                       <td style={{ minWidth: 140 }}>
                         <div className="meter"><i style={{ width: `${pct}%`, background: 'var(--st-done)' }} /></div>
                         <span className="hint mono">{pct}% · {p.done}/{p.tasks} tarefas</span>

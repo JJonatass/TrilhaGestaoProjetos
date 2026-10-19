@@ -24,7 +24,7 @@ interface Db {
   messages: Message[]
   seq: number
   sessionUserId: string | null
-  defaults: { expiresAt: string | null; driveExport: boolean }
+  defaults: { expiresAt: string | null; driveExport: boolean; maxMembers?: number | null }
 }
 
 const KEY = 'trilha.demo.v2'
@@ -103,10 +103,10 @@ function initialDb(): Db {
     admins: ['jonatas.junior@gmail.com'],
     projects: [], members: [], invites: [], tasks: [], assignees: [], deps: [], sprints: [], history: [], messages: [],
     seq: 100, sessionUserId: null,
-    defaults: { expiresAt: null, driveExport: false },
+    defaults: { expiresAt: null, driveExport: false, maxMembers: null },
   }
   const p1 = 'p-monitorias'
-  db.projects.push({ id: p1, name: 'App de Monitorias', ownerId: U.ana, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: at(addDays(today(), -28)), expiresAt: at(addDays(today(), 12), 59, 23), driveExportAllowed: true })
+  db.projects.push({ id: p1, name: 'App de Monitorias', ownerId: U.ana, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: at(addDays(today(), -28)), expiresAt: at(addDays(today(), 12), 59, 23), driveExportAllowed: true, maxMembers: 6 })
   const joined = at(addDays(today(), -27))
   db.members.push(
     { projectId: p1, userId: U.ana, role: 'owner', joinedAt: joined },
@@ -118,7 +118,7 @@ function initialDb(): Db {
   seedProject(db, p1, U.ana, { ana: U.ana, bruno: U.bruno, carla: U.carla, diego: U.diego })
 
   const p2 = 'p-semana'
-  db.projects.push({ id: p2, name: 'Site da Semana Acadêmica', ownerId: U.bruno, wip: { doing: 2 }, selfAssign: true, createdAt: at(addDays(today(), -6)), expiresAt: null, driveExportAllowed: false })
+  db.projects.push({ id: p2, name: 'Site da Semana Acadêmica', ownerId: U.bruno, wip: { doing: 2 }, selfAssign: true, createdAt: at(addDays(today(), -6)), expiresAt: null, driveExportAllowed: false, maxMembers: null })
   db.members.push({ projectId: p2, userId: U.bruno, role: 'owner', joinedAt: at(addDays(today(), -6)) })
   const t = (title: string, status: StatusId, phase: Phase, d: number) => {
     const id = ++db.seq
@@ -226,7 +226,7 @@ export function createDemoRepo(): Repo {
     async createProject(name, withSample) {
       const id = `p-${++db.seq}`
       const uid = db.sessionUserId!
-      db.projects.push({ id, name, ownerId: uid, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: new Date().toISOString(), expiresAt: db.defaults.expiresAt, driveExportAllowed: db.defaults.driveExport })
+      db.projects.push({ id, name, ownerId: uid, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: new Date().toISOString(), expiresAt: db.defaults.expiresAt, driveExportAllowed: db.defaults.driveExport, maxMembers: db.defaults.maxMembers ?? null })
       db.members.push({ projectId: id, userId: uid, role: 'owner', joinedAt: new Date().toISOString() })
       if (withSample) seedProject(db, id, uid, { ana: uid, bruno: uid, carla: uid, diego: uid })
       changed()
@@ -244,6 +244,10 @@ export function createDemoRepo(): Repo {
     async acceptInvite(id) {
       const inv = db.invites.find((i) => i.id === id && i.email === me()?.email)
       if (!inv) throw new Error('Convite não encontrado para este e-mail')
+      const lim = db.projects.find((p) => p.id === inv.projectId)?.maxMembers ?? null
+      if (lim !== null && db.members.filter((m) => m.projectId === inv.projectId).length >= lim) {
+        throw new Error(`A equipe já atingiu o limite de ${lim} integrantes`)
+      }
       db.members.push({ projectId: inv.projectId, userId: db.sessionUserId!, role: inv.role, joinedAt: new Date().toISOString() })
       db.invites = db.invites.filter((i) => i.id !== id)
       changed(inv.projectId)
@@ -255,7 +259,7 @@ export function createDemoRepo(): Repo {
       const meta = db.projects.find((p) => p.id === id)
       if (!meta || (!role(id) && !isAdmin())) throw new Error('Projeto não encontrado ou sem acesso.')
       const snap: Snapshot = {
-        meta: { ...meta },
+        meta: { ...meta, maxMembers: meta.maxMembers ?? null },
         members: db.members.filter((m) => m.projectId === id).map((m): Member => {
           const u = db.users.find((x) => x.id === m.userId)!
           return { id: u.id, email: u.email, fullName: u.fullName, role: m.role, joinedAt: m.joinedAt }
@@ -358,6 +362,9 @@ export function createDemoRepo(): Repo {
       if (role(projectId) !== 'owner') deny()
       const e = email.trim().toLowerCase()
       if (db.invites.some((i) => i.projectId === projectId && i.email === e)) throw new Error('duplicate key project_invites')
+      const lim = db.projects.find((p) => p.id === projectId)?.maxMembers ?? null
+      const used = db.members.filter((m) => m.projectId === projectId).length + db.invites.filter((i) => i.projectId === projectId).length
+      if (lim !== null && used >= lim) throw new Error(`A equipe já atingiu o limite de ${lim} integrantes (contando convites pendentes)`)
       db.invites.push({ id: `inv-${++db.seq}`, projectId, email: e, role: r, invitedBy: db.sessionUserId!, createdAt: new Date().toISOString() })
       changed(projectId)
     },
@@ -441,6 +448,8 @@ export function createDemoRepo(): Repo {
           lastActivity: hist[hist.length - 1] ?? p.createdAt,
           unread: db.messages.filter((m) => m.projectId === p.id && m.senderId === m.userId && !m.readAt).length,
           expiresAt: p.expiresAt, driveExportAllowed: p.driveExportAllowed,
+          maxMembers: p.maxMembers ?? null,
+          pendingInvites: db.invites.filter((i) => i.projectId === p.id).length,
         }
       }).sort((a, b) => (b.lastActivity ?? '').localeCompare(a.lastActivity ?? '')))
     },
@@ -458,9 +467,17 @@ export function createDemoRepo(): Repo {
       list.forEach((p) => changed(p.id))
       return list.length
     },
+    async adminSetMaxMembers(ids, max) {
+      if (!isAdmin()) throw new Error('Acesso restrito ao administrador')
+      if (max !== null && (max < 1 || max > 200)) throw new Error('max_members_check')
+      const list = db.projects.filter((p) => !ids || ids.includes(p.id))
+      list.forEach((p) => { p.maxMembers = max })
+      list.forEach((p) => changed(p.id))
+      return list.length
+    },
     async adminGetDefaults() {
       if (!isAdmin()) throw new Error('Acesso restrito ao administrador')
-      return { ...db.defaults }
+      return { ...db.defaults, maxMembers: db.defaults.maxMembers ?? null }
     },
     async adminSetDefaults(d) {
       if (!isAdmin()) throw new Error('Acesso restrito ao administrador')

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { DepPicker } from '../components/DepPicker'
 import { ConfirmButton, Drawer, Field, HintsToggle, initials, personName } from '../components/ui'
 import { dayOfIso, shortDate } from '../lib/dates'
 import { useProject } from '../state/ProjectProvider'
@@ -21,7 +22,7 @@ const H = {
   due: 'Data limite. Depois dela, se a tarefa não estiver em Feito, aparece em vermelho e conta como atrasada.',
   milestoneDate: 'Um marco não tem duração: a data é a do campo Início.',
   milestone: 'Entrega importante que marca uma etapa, como "Protótipo aprovado" ou "Lançamento beta". Não tem duração nem pontos e aparece como losango no cronograma.',
-  dependsOn: 'Tarefas que precisam terminar antes desta começar. Geram as setas do cronograma e o caminho crítico. Itens apagados não podem ser escolhidos porque já dependem desta e criariam um ciclo.',
+  dependsOn: 'Tarefas que precisam terminar antes desta começar. Geram as setas do cronograma e o caminho crítico. Use a busca para achar pelo nome; a lista vem agrupada por fase, começando pela fase desta tarefa. Itens marcados "criaria ciclo" já dependem desta e não podem ser escolhidos.',
 }
 
 const blank = (status: StatusId): TaskDraft => ({
@@ -216,15 +217,15 @@ export function TaskEditor() {
         {dateError && <p className="hint" style={{ color: 'var(--late)', margin: 0 }}>O prazo precisa ser igual ou posterior ao início.</p>}
 
         <Field id="task-deps" label="Depende de" hint={H.dependsOn}>
-          <div id="task-deps" className="dep-list" role="group" aria-label="Depende de">
-            {snap.tasks.filter((t) => t.id !== taskId).map((t) => (
-              <label key={t.id} style={{ opacity: blocked.has(t.id) ? 0.45 : 1 }} title={blocked.has(t.id) ? 'Esta tarefa já depende da atual; escolher criaria um ciclo' : undefined}>
-                <input type="checkbox" disabled={blocked.has(t.id)} checked={d.dependsOn.includes(t.id)}
-                  onChange={(e) => set('dependsOn', e.target.checked ? [...d.dependsOn, t.id] : d.dependsOn.filter((x) => x !== t.id))} />
-                <span>{t.title}</span>
-              </label>
-            ))}
-          </div>
+          <DepPicker
+            id="task-deps"
+            tasks={snap.tasks}
+            currentId={taskId}
+            currentPhase={d.phase}
+            value={d.dependsOn}
+            blocked={blocked}
+            onChange={(v) => set('dependsOn', v)}
+          />
         </Field>
       </fieldset>
 

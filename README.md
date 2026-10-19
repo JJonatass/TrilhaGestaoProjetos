@@ -39,6 +39,8 @@ O app está publicado na **Vercel** (plano gratuito): **https://trilha-gestao-pr
 
 **Prazo de existência (admin):** em **Administração → Prazos e Google Drive**, por projeto (coluna Prazo da tabela), para todos de uma vez, ou como padrão para os projetos novos. A partir de 14 dias antes, os integrantes veem o aviso no topo do projeto. Depois da data, o banco apaga o projeto na limpeza diária (pg_cron, 03:15 de Brasília). Alunos não conseguem alterar o prazo: o banco ignora.
 
+**Limite de integrantes (admin):** em **Administração → Prazos, equipes e Google Drive**, por projeto (coluna Equipe), para todos de uma vez, ou como padrão para os projetos novos. Conta o criador, os integrantes e os convites pendentes. Com a equipe cheia, o criador não consegue convidar e o banco recusa novas entradas. Baixar o limite não remove ninguém. Vazio = sem limite.
+
 **Relatório PDF:** botão **Relatório PDF** no topo de qualquer projeto. Gerado no navegador, com resumo, burndown, progresso por fase, equipe, prazos vencidos, todas as tarefas e sprints.
 
 **Salvar no Google Drive (com autorização do admin):** o admin libera por projeto ou para todos. O aluno clica em **Salvar no Drive** e o projeto completo vai para o Drive dele como `Nome.trilha.json` (sem mensagens e convites). Em **Abrir arquivo do Drive** (`/arquivo`), o arquivo abre **sem Supabase e sem conta no sistema**, só com o login do Google: quadro, cronograma, métricas e painel funcionam, e as alterações são salvas de volta no mesmo arquivo.
@@ -71,8 +73,9 @@ Tudo é garantido pelo banco (Row Level Security), não só pela interface. O hi
 ```
 supabase/
   setup.sql               script único para o SQL Editor
-  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza)
+  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe)
   tests/rls.test.mjs      51 testes das regras de acesso num Postgres em memória
+  tests/limite.test.mjs   18 testes do limite de integrantes
 src/
   app/                    rotas: /entrar, / (projetos), /perfil, /mensagens, /admin,
                           /projeto (quadro, cronograma, métricas, painel, equipe, mensagens)

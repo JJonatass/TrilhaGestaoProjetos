@@ -195,6 +195,7 @@ export function createSupabaseRepo(): Repo {
           createdAt: p.created_at as string,
           expiresAt: (p.expires_at as string | null) ?? null,
           driveExportAllowed: Boolean(p.drive_export_allowed),
+          maxMembers: (p.max_members as number | null) ?? null,
         },
         members: (check(members) as Row[])
           .map((m): Member => {
@@ -397,7 +398,7 @@ export function createSupabaseRepo(): Repo {
     // ---------------- administrador ----------------
 
     async adminProjects() {
-      const rows = check(await sb.rpc('admin_projects_v2')) as Row[]
+      const rows = check(await sb.rpc('admin_projects_v3')) as Row[]
       return rows.map(
         (r): AdminProject => ({
           id: r.id as string,
@@ -415,6 +416,8 @@ export function createSupabaseRepo(): Repo {
           unread: r.unread as number,
           expiresAt: (r.expires_at as string | null) ?? null,
           driveExportAllowed: Boolean(r.drive_export_allowed),
+          maxMembers: (r.max_members as number | null) ?? null,
+          pendingInvites: (r.pending_invites as number) ?? 0,
         }),
       )
     },
@@ -427,13 +430,24 @@ export function createSupabaseRepo(): Repo {
       return check(await sb.rpc('admin_set_drive_export', { p_ids: ids, p_allowed: allowed })) as number
     },
 
+    async adminSetMaxMembers(ids, max) {
+      return check(await sb.rpc('admin_set_max_members', { p_ids: ids, p_max: max })) as number
+    },
+
     async adminGetDefaults(): Promise<AdminDefaults> {
-      const r = check(await sb.from('app_settings').select('default_expires_at, default_drive_export').maybeSingle()) as Row | null
-      return { expiresAt: (r?.default_expires_at as string | null) ?? null, driveExport: Boolean(r?.default_drive_export) }
+      const r = check(
+        await sb.from('app_settings').select('default_expires_at, default_drive_export, default_max_members').maybeSingle(),
+      ) as Row | null
+      return {
+        expiresAt: (r?.default_expires_at as string | null) ?? null,
+        driveExport: Boolean(r?.default_drive_export),
+        maxMembers: (r?.default_max_members as number | null) ?? null,
+      }
     },
 
     async adminSetDefaults(d) {
       check(await sb.rpc('admin_set_defaults', { p_expires_at: d.expiresAt, p_drive_export: d.driveExport }))
+      check(await sb.rpc('admin_set_default_max_members', { p_max: d.maxMembers }))
     },
 
     async adminUsers() {

@@ -72,6 +72,7 @@ export function createFileRepo(initial: Snapshot, onDirty: (dirty: boolean) => v
     adminUsers: async () => [],
     adminSetExpiry: unsupported,
     adminSetDriveExport: unsupported,
+    adminSetMaxMembers: unsupported,
     adminGetDefaults: unsupported,
     adminSetDefaults: unsupported,
 

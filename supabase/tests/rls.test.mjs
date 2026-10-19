@@ -20,7 +20,7 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on sequences to anon, authenticated;
 create publication supabase_realtime;
 `)
-for (const f of ['0001_schema.sql', '0002_sample_project.sql', '0003_admin.sql', '0004_convites_e_permissoes.sql', '0005_prazo_e_drive.sql']) {
+for (const f of ['0001_schema.sql', '0002_sample_project.sql', '0003_admin.sql', '0004_convites_e_permissoes.sql', '0005_prazo_e_drive.sql', '0007_limite_equipe.sql']) {
   await db.exec(readFileSync(M + f, 'utf8'))
   console.log('aplicado', f)
 }
