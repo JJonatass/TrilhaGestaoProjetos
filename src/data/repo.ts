@@ -3,7 +3,7 @@
 // - demoRepo: dados fictícios no navegador, para aulas e testes sem conta.
 
 import type {
-  AdminDefaults, AdminProject, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
+  AccessLists, AdminDefaults, AdminProject, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
   ProjectSummary, Role, Snapshot, Sprint, StatusId, Task, TaskDraft,
 } from '../types'
 
@@ -75,6 +75,20 @@ export interface Repo {
   adminSetMaxMembers(ids: string[] | null, max: number | null): Promise<number>
   adminGetDefaults(): Promise<AdminDefaults>
   adminSetDefaults(d: AdminDefaults): Promise<void>
+
+  // ---- acesso ao sistema ----
+  /** Consulta sem login: este e-mail pode se cadastrar? (e quais domínios são aceitos) */
+  canSignUp(email: string): Promise<{ allowed: boolean; domains: string[] }>
+  adminAccess(): Promise<AccessLists>
+  adminAddDomain(domain: string, note: string): Promise<void>
+  adminUpdateDomain(oldDomain: string, domain: string, note: string): Promise<void>
+  adminRemoveDomain(domain: string): Promise<void>
+  adminAddEmail(email: string, note: string): Promise<void>
+  adminRemoveEmail(email: string): Promise<void>
+  adminAddAdmin(email: string): Promise<void>
+  adminRemoveAdmin(email: string): Promise<void>
+  adminSetBlocked(userId: string, blocked: boolean): Promise<void>
+  adminDeleteUser(userId: string): Promise<void>
 }
 
 export type { Task }
@@ -107,6 +121,9 @@ export function friendlyError(e: unknown): string {
     [/row-level security|permission denied/i, 'Você não tem permissão para fazer isso neste projeto.'],
     [/duplicate key.*project_invites/i, 'Este e-mail já foi convidado.'],
     [/max_members_check|default_max_members_check/i, 'O limite de integrantes precisa ser um número entre 1 e 200.'],
+    [/Database error saving new user|Cadastro não permitido/i, 'Cadastro não permitido para este e-mail. Use o seu e-mail institucional ou peça ao professor para liberar o seu e-mail.'],
+    [/admin_delete_user/i, 'A exclusão de contas ainda não foi ativada no banco. Por enquanto, bloqueie a conta aqui ou exclua pelo painel do Supabase (Authentication → Users).'],
+    [/User is banned/i, 'Esta conta está bloqueada. Fale com o administrador do sistema.'],
     [/Failed to fetch|NetworkError/i, 'Sem conexão com o servidor. Verifique a internet e tente de novo.'],
     [/rate limit/i, 'Muitas tentativas seguidas. Aguarde um minuto e tente de novo.'],
   ]

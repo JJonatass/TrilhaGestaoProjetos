@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useState } from 'react'
+import { AccessPanel } from '../../components/AccessPanel'
 import { Badge, ConfirmButton, initials, timeAgo, useHint } from '../../components/ui'
 import { daysLeft, endOfDayIso, isoToDay, WARN_DAYS } from '../../lib/expiry'
 import { friendlyError } from '../../data/repo'
@@ -18,6 +19,7 @@ export default function AdminPage() {
   const [bulkDate, setBulkDate] = useState('')
   const [bulkMax, setBulkMax] = useState('')
   const [notice, setNotice] = useState<string | null>(null)
+  const [accessKey, setAccessKey] = useState(0)
   const hPrazo = useHint('ajuda-prazos', 'prazos, equipes e Google Drive')
 
   const load = useCallback(async () => {
@@ -205,6 +207,8 @@ export default function AdminPage() {
         </div>
       </section>
 
+      {repo && <AccessPanel key={accessKey} repo={repo} onChanged={() => void load()} />}
+
       <section className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h2>Projetos</h2></div>
         {projects === null ? (
@@ -306,22 +310,37 @@ export default function AdminPage() {
       </section>
 
       <section className="panel">
-        <div className="panel-head"><h2>Usuários</h2></div>
+        <div className="panel-head">
+          <div>
+            <h2>Usuários</h2>
+            <p><b>Bloquear</b> impede a pessoa de entrar (uma sessão já aberta expira em até 1 hora). <b>Excluir</b> apaga a conta, os projetos que ela criou e as mensagens dela, e não pode ser desfeito.</p>
+          </div>
+        </div>
         {users === null ? (
           <p className="empty">Carregando…</p>
         ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
-                <tr><th>Pessoa</th><th className="num">Projetos</th><th className="num">Tarefas abertas</th><th>Último acesso</th><th>Cadastro</th><th className="num">Não lidas</th></tr>
+                <tr><th>Pessoa</th><th className="num">Projetos</th><th className="num">Tarefas abertas</th><th>Último acesso</th><th>Cadastro</th><th className="num">Não lidas</th><th>Ações</th></tr>
               </thead>
               <tbody>
-                {fu.map((u) => (
-                  <tr key={u.id} className={u.unread ? 'row-alert' : ''}>
+                {fu.map((u) => {
+                  const self = u.id === session.user.id
+                  const userAct = (fn: () => Promise<unknown>, msg: string) =>
+                    void act(fn, msg).then(() => setAccessKey((k) => k + 1))
+                  return (
+                  <tr key={u.id} className={`${u.unread ? 'row-alert' : ''} ${u.blocked ? 'row-blocked' : ''}`}>
                     <td>
                       <span style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <span className="avatar">{initials(u.fullName || u.email)}</span>
-                        <span>{u.fullName || u.email.split('@')[0]}<div className="hint">{u.email}</div></span>
+                        <span>
+                          {u.fullName || u.email.split('@')[0]}
+                          {u.isAdmin && <span className="role-tag owner" style={{ marginLeft: 6 }}>Admin</span>}
+                          {u.blocked && <span className="pill warn" style={{ marginLeft: 6 }}>Bloqueado</span>}
+                          {!u.confirmed && <span className="pill" style={{ marginLeft: 6 }}>E-mail não confirmado</span>}
+                          <div className="hint">{u.email}</div>
+                        </span>
                       </span>
                     </td>
                     <td className="num">{u.projects}</td>
@@ -329,8 +348,35 @@ export default function AdminPage() {
                     <td>{timeAgo(u.lastSignInAt)}</td>
                     <td>{new Date(u.createdAt).toLocaleDateString('pt-BR')}</td>
                     <td className="num"><Badge n={u.unread} />{!u.unread && <span className="hint">0</span>}</td>
+                    <td>
+                      {self ? (
+                        <span className="hint">você</span>
+                      ) : (
+                        <div className="toolbar user-actions">
+                          {u.isAdmin ? (
+                            <ConfirmButton className="small" label="Tirar admin" confirmLabel="Confirmar" onConfirm={() => userAct(() => repo!.adminRemoveAdmin(u.email), `${u.email} não é mais administrador.`)} />
+                          ) : (
+                            <button type="button" className="btn small" onClick={() => userAct(() => repo!.adminAddAdmin(u.email), `${u.email} agora é administrador.`)}>Tornar admin</button>
+                          )}
+                          {!u.isAdmin && (u.blocked ? (
+                            <button type="button" className="btn small" onClick={() => userAct(() => repo!.adminSetBlocked(u.id, false), `${u.email} desbloqueado.`)}>Desbloquear</button>
+                          ) : (
+                            <ConfirmButton className="small" label="Bloquear" confirmLabel="Confirmar bloqueio" onConfirm={() => userAct(() => repo!.adminSetBlocked(u.id, true), `${u.email} bloqueado: não consegue mais entrar.`)} />
+                          ))}
+                          {!u.isAdmin && (
+                            <ConfirmButton
+                              className="small"
+                              label="Excluir"
+                              confirmLabel={u.ownedProjects ? `Excluir conta e ${u.ownedProjects} projeto${u.ownedProjects > 1 ? 's' : ''}` : 'Excluir conta'}
+                              onConfirm={() => userAct(() => repo!.adminDeleteUser(u.id), `Conta de ${u.email} excluída.`)}
+                            />
+                          )}
+                        </div>
+                      )}
+                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

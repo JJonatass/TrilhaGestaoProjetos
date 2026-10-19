@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { friendlyError } from '../../data/repo'
 import { useAuth } from '../../state/AuthProvider'
 
@@ -16,6 +16,13 @@ export default function EntrarPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [domains, setDomains] = useState<string[] | null>(null)
+
+  // no cadastro, mostra quais e-mails são aceitos
+  useEffect(() => {
+    if (mode !== 'cadastrar' || !repo || domains) return
+    repo.canSignUp('consulta@invalido.local').then((r) => setDomains(r.domains)).catch(() => setDomains([]))
+  }, [mode, repo, domains])
 
   const submit = async () => {
     if (!repo) return
@@ -75,6 +82,11 @@ export default function EntrarPage() {
           <label className="field">
             <span>E-mail</span>
             <input id="auth-email" className="input" type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
+            {mode === 'cadastrar' && domains && domains.length > 0 && (
+              <small id="auth-domains" className="hint">
+                Use o seu e-mail institucional ({domains.map((d) => '@' + d).join(', ')}). Se você é de fora, peça ao professor para liberar o seu e-mail.
+              </small>
+            )}
           </label>
           {mode !== 'senha' && (
             <label className="field">

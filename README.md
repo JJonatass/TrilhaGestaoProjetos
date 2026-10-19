@@ -41,6 +41,13 @@ O app está publicado na **Vercel** (plano gratuito): **https://trilha-gestao-pr
 
 **Limite de integrantes (admin):** em **Administração → Prazos, equipes e Google Drive**, por projeto (coluna Equipe), para todos de uma vez, ou como padrão para os projetos novos. Conta o criador, os integrantes e os convites pendentes. Com a equipe cheia, o criador não consegue convidar e o banco recusa novas entradas. Baixar o limite não remove ninguém. Vazio = sem limite.
 
+**Acesso ao sistema (admin):** em **Administração → Acesso ao sistema**:
+- *Domínios permitidos*: só e-mails desses domínios criam conta (começa com `ficr.edu.br`, que aceita também subdomínios). Adicione, edite e remova quantos quiser. Lista vazia = cadastro aberto.
+- *E-mails liberados*: exceções avulsas de qualquer domínio.
+- *Administradores*: qualquer e-mail; sempre podem se cadastrar.
+- Remover só desativa o registro (fica a data). A regra vale no cadastro, na troca de e-mail e nos convites, e é aplicada pelo banco.
+- Na tabela **Usuários**: tornar/tirar admin, bloquear/desbloquear e excluir conta (apaga a conta, os projetos que ela criou e as mensagens).
+
 **Relatório PDF:** botão **Relatório PDF** no topo de qualquer projeto. Gerado no navegador, com resumo, burndown, progresso por fase, equipe, prazos vencidos, todas as tarefas e sprints.
 
 **Salvar no Google Drive (com autorização do admin):** o admin libera por projeto ou para todos. O aluno clica em **Salvar no Drive** e o projeto completo vai para o Drive dele como `Nome.trilha.json` (sem mensagens e convites). Em **Abrir arquivo do Drive** (`/arquivo`), o arquivo abre **sem Supabase e sem conta no sistema**, só com o login do Google: quadro, cronograma, métricas e painel funcionam, e as alterações são salvas de volta no mesmo arquivo.
@@ -73,9 +80,10 @@ Tudo é garantido pelo banco (Row Level Security), não só pela interface. O hi
 ```
 supabase/
   setup.sql               script único para o SQL Editor
-  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe)
+  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe, acesso)
   tests/rls.test.mjs      51 testes das regras de acesso num Postgres em memória
   tests/limite.test.mjs   18 testes do limite de integrantes
+  tests/acesso.test.mjs   54 testes de domínios, e-mails liberados, admins, bloqueio e exclusão
 src/
   app/                    rotas: /entrar, / (projetos), /perfil, /mensagens, /admin,
                           /projeto (quadro, cronograma, métricas, painel, equipe, mensagens)

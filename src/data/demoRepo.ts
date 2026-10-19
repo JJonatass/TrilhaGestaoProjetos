@@ -11,8 +11,10 @@ import type { Repo, Session } from './repo'
 
 interface Invite { id: string; projectId: string; email: string; role: Role; invitedBy: string; createdAt: string }
 interface Db {
-  users: (Profile & { createdAt: string; lastSignInAt: string | null })[]
+  users: (Profile & { createdAt: string; lastSignInAt: string | null; blocked?: boolean })[]
   admins: string[]
+  domains?: { domain: string; note: string; createdAt: string }[]
+  allowedEmails?: { email: string; note: string; createdAt: string }[]
   projects: ProjectMeta[]
   members: { projectId: string; userId: string; role: Role; joinedAt: string }[]
   invites: Invite[]
@@ -153,11 +155,21 @@ export function createDemoRepo(): Repo {
   function load(): Db {
     try {
       const raw = localStorage.getItem(KEY)
-      if (raw) return JSON.parse(raw) as Db
+      if (raw) return withAccess(JSON.parse(raw) as Db)
     } catch {
       /* sem armazenamento */
     }
-    return initialDb()
+    return withAccess(initialDb())
+  }
+  // regras de acesso do modo demonstração (dados antigos do navegador ganham o padrão)
+  function withAccess(d: Db): Db {
+    const now = new Date().toISOString()
+    d.domains ??= [
+      { domain: 'ficr.edu.br', note: 'Faculdade Integrada do Recife', createdAt: now },
+      { domain: 'exemplo.com', note: 'Perfis de demonstração', createdAt: now },
+    ]
+    d.allowedEmails ??= []
+    return d
   }
   function save() {
     try {
@@ -173,6 +185,18 @@ export function createDemoRepo(): Repo {
   }
   const me = () => db.users.find((u) => u.id === db.sessionUserId) ?? null
   const isAdmin = () => !!me() && db.admins.includes(me()!.email)
+  const needAdmin = () => { if (!isAdmin()) throw new Error('Acesso restrito ao administrador') }
+  const domOf = (e: string) => e.split('@')[1] ?? ''
+  const inDomain = (e: string, d: string) => domOf(e) === d || domOf(e).endsWith('.' + d)
+  const emailAllowed = (raw: string) => {
+    const e = raw.trim().toLowerCase()
+    return db.admins.includes(e) || db.allowedEmails!.some((x) => x.email === e) || db.domains!.length === 0 || db.domains!.some((d) => inDomain(e, d.domain))
+  }
+  const cleanDomain = (d: string) => {
+    const v = d.trim().toLowerCase().replace(/^@+/, '')
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(v)) throw new Error('Domínio inválido. Use o formato ficr.edu.br')
+    return v
+  }
   const role = (p: string) => db.members.find((m) => m.projectId === p && m.userId === db.sessionUserId)?.role ?? null
   const canEdit = (p: string) => role(p) === 'owner' || role(p) === 'editor'
   const deny = () => { throw new Error('Você não tem permissão para fazer isso neste projeto.') }
@@ -188,6 +212,7 @@ export function createDemoRepo(): Repo {
     async signIn(email) {
       const u = db.users.find((x) => x.email === email.trim().toLowerCase())
       if (!u) throw new Error('No modo demonstração, use um dos perfis de exemplo.')
+      if (u.blocked) throw new Error('User is banned')
       db.sessionUserId = u.id
       u.lastSignInAt = new Date().toISOString()
       save(); emitAuth()
@@ -195,6 +220,7 @@ export function createDemoRepo(): Repo {
     async signUp(email, _password, fullName) {
       const e = email.trim().toLowerCase()
       if (db.users.some((u) => u.email === e)) throw new Error('User already registered')
+      if (!emailAllowed(e)) throw new Error('Cadastro não permitido para este e-mail')
       const id = `u-${++db.seq}`
       db.users.push({ id, email: e, fullName, createdAt: new Date().toISOString(), lastSignInAt: new Date().toISOString() })
       db.sessionUserId = id
@@ -205,7 +231,10 @@ export function createDemoRepo(): Repo {
     async resetPassword() { /* sem e-mail no modo demonstração */ },
     async updateProfile(fullName) { const u = me(); if (u) { u.fullName = fullName; save(); emitAuth() } },
     demoUsers() { return db.users.map(({ id, email, fullName }) => ({ id, email, fullName })) },
-    async demoSwitch(userId) { db.sessionUserId = userId; save(); emitAuth() },
+    async demoSwitch(userId) {
+      if (db.users.find((u) => u.id === userId)?.blocked) throw new Error('User is banned')
+      db.sessionUserId = userId; save(); emitAuth()
+    },
 
     async listProjects() {
       const uid = db.sessionUserId
@@ -362,6 +391,9 @@ export function createDemoRepo(): Repo {
       if (role(projectId) !== 'owner') deny()
       const e = email.trim().toLowerCase()
       if (db.invites.some((i) => i.projectId === projectId && i.email === e)) throw new Error('duplicate key project_invites')
+      if (!emailAllowed(e) && !db.users.some((u) => u.email === e)) {
+        throw new Error('Este e-mail não pode se cadastrar no sistema (domínio não permitido). Use o e-mail institucional da pessoa ou peça ao administrador para liberá-lo.')
+      }
       const lim = db.projects.find((p) => p.id === projectId)?.maxMembers ?? null
       const used = db.members.filter((m) => m.projectId === projectId).length + db.invites.filter((i) => i.projectId === projectId).length
       if (lim !== null && used >= lim) throw new Error(`A equipe já atingiu o limite de ${lim} integrantes (contando convites pendentes)`)
@@ -491,7 +523,90 @@ export function createDemoRepo(): Repo {
         projects: db.members.filter((m) => m.userId === u.id).length,
         openTasks: db.assignees.filter((a) => a.userId === u.id && db.tasks.find((t) => t.id === a.taskId)?.status !== 'done').length,
         unread: db.messages.filter((m) => m.userId === u.id && m.senderId === u.id && !m.readAt).length,
+        isAdmin: db.admins.includes(u.email), blocked: !!u.blocked, confirmed: true,
+        ownedProjects: db.projects.filter((p) => p.ownerId === u.id).length,
       })))
+    },
+
+    async canSignUp(email) {
+      return delay({ allowed: emailAllowed(email), domains: db.domains!.map((d) => d.domain).sort() })
+    },
+    async adminAccess() {
+      needAdmin()
+      const myEmail = me()!.email
+      return delay({
+        domains: [...db.domains!].sort((a, b) => a.domain.localeCompare(b.domain)).map((d) => ({ ...d, users: db.users.filter((u) => inDomain(u.email, d.domain)).length })),
+        emails: [...db.allowedEmails!].sort((a, b) => a.email.localeCompare(b.email)).map((x) => ({ ...x, registered: db.users.some((u) => u.email === x.email) })),
+        admins: [...db.admins].sort().map((e) => ({ email: e, registered: db.users.some((u) => u.email === e), confirmed: db.users.some((u) => u.email === e), me: e === myEmail })),
+      })
+    },
+    async adminAddDomain(domain, note) {
+      needAdmin()
+      const d = cleanDomain(domain)
+      if (db.domains!.some((x) => x.domain === d)) throw new Error('Este domínio já está na lista')
+      db.domains!.push({ domain: d, note: note.trim(), createdAt: new Date().toISOString() })
+      changed()
+    },
+    async adminUpdateDomain(oldDomain, domain, note) {
+      needAdmin()
+      const d = cleanDomain(domain)
+      const cur = db.domains!.find((x) => x.domain === oldDomain)
+      if (!cur) throw new Error('Domínio não encontrado')
+      if (d !== oldDomain && db.domains!.some((x) => x.domain === d)) throw new Error('Este domínio já está na lista')
+      cur.domain = d
+      cur.note = note.trim()
+      changed()
+    },
+    async adminRemoveDomain(domain) { needAdmin(); db.domains = db.domains!.filter((x) => x.domain !== domain); changed() },
+    async adminAddEmail(email, note) {
+      needAdmin()
+      const e = email.trim().toLowerCase()
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('E-mail inválido')
+      const cur = db.allowedEmails!.find((x) => x.email === e)
+      if (cur) cur.note = note.trim()
+      else db.allowedEmails!.push({ email: e, note: note.trim(), createdAt: new Date().toISOString() })
+      changed()
+    },
+    async adminRemoveEmail(email) { needAdmin(); db.allowedEmails = db.allowedEmails!.filter((x) => x.email !== email); changed() },
+    async adminAddAdmin(email) {
+      needAdmin()
+      const e = email.trim().toLowerCase()
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('E-mail inválido')
+      if (!db.admins.includes(e)) db.admins.push(e)
+      changed(); emitAuth()
+    },
+    async adminRemoveAdmin(email) {
+      needAdmin()
+      if (email === me()!.email) throw new Error('Você não pode tirar a sua própria permissão de administrador')
+      db.admins = db.admins.filter((x) => x !== email)
+      changed(); emitAuth()
+    },
+    async adminSetBlocked(userId, blocked) {
+      needAdmin()
+      if (userId === db.sessionUserId) throw new Error('Você não pode bloquear a sua própria conta')
+      const u = db.users.find((x) => x.id === userId)!
+      if (blocked && db.admins.includes(u.email)) throw new Error('Tire a permissão de administrador antes de bloquear esta conta')
+      u.blocked = blocked
+      changed()
+    },
+    async adminDeleteUser(userId) {
+      needAdmin()
+      if (userId === db.sessionUserId) throw new Error('Você não pode excluir a sua própria conta por aqui')
+      const u = db.users.find((x) => x.id === userId)!
+      if (db.admins.includes(u.email)) throw new Error('Tire a permissão de administrador antes de excluir esta conta')
+      const owned = new Set(db.projects.filter((p) => p.ownerId === userId).map((p) => p.id))
+      const keep = <T extends { projectId: string }>(list: T[]) => list.filter((x) => !owned.has(x.projectId))
+      db.projects = db.projects.filter((p) => !owned.has(p.id))
+      db.members = keep(db.members).filter((m) => m.userId !== userId)
+      db.invites = keep(db.invites)
+      db.tasks = keep(db.tasks)
+      db.assignees = keep(db.assignees).filter((a) => a.userId !== userId)
+      db.deps = keep(db.deps)
+      db.sprints = keep(db.sprints)
+      db.history = keep(db.history)
+      db.messages = keep(db.messages).filter((m) => m.userId !== userId && m.senderId !== userId)
+      db.users = db.users.filter((x) => x.id !== userId)
+      changed()
     },
   }
 }

@@ -4,6 +4,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
+  AccessLists,
   AdminDefaults, AdminProject, AdminUser, InboxThread, Member, Message, PendingInvite, Phase, Priority,
   ProjectSummary, Role, Snapshot, StatusId, Task, TaskDraft,
 } from '../types'
@@ -57,6 +58,19 @@ export function createSupabaseRepo(): Repo {
   const redirectTo = () =>
     typeof window === 'undefined' ? undefined : `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/`
 
+
+  // Regra de cadastro (domínios permitidos e e-mails liberados), consultável sem login
+  async function signupRule(email: string) {
+    const [allowed, domains] = await Promise.all([
+      sb.rpc('can_sign_up', { p_email: email.trim().toLowerCase() }),
+      sb.rpc('signup_domains'),
+    ])
+    return {
+      allowed: Boolean(check(allowed)),
+      domains: ((check(domains) as unknown[]) ?? []).map((d) => (typeof d === 'string' ? d : String((d as Row).signup_domains))),
+    }
+  }
+
   return {
     mode: 'supabase',
 
@@ -79,6 +93,14 @@ export function createSupabaseRepo(): Repo {
     },
 
     async signUp(email, password, fullName) {
+      // confere a regra antes, para dar uma mensagem clara (o banco também barra)
+      const rule = await signupRule(email)
+      if (!rule.allowed) {
+        const list = rule.domains.map((d) => '@' + d).join(', ')
+        throw new Error(
+          `Cadastro não permitido para este e-mail. Use o seu e-mail institucional${list ? ` (${list})` : ''} ou peça ao professor para liberar o seu e-mail.`,
+        )
+      }
       const data = check(
         await sb.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: redirectTo() } }),
       )
@@ -451,7 +473,7 @@ export function createSupabaseRepo(): Repo {
     },
 
     async adminUsers() {
-      const rows = check(await sb.rpc('admin_users')) as Row[]
+      const rows = check(await sb.rpc('admin_users_v2')) as Row[]
       return rows.map(
         (r): AdminUser => ({
           id: r.id as string,
@@ -462,8 +484,34 @@ export function createSupabaseRepo(): Repo {
           projects: r.projects as number,
           openTasks: r.open_tasks as number,
           unread: r.unread as number,
+          isAdmin: Boolean(r.is_admin),
+          blocked: Boolean(r.blocked),
+          confirmed: Boolean(r.confirmed),
+          ownedProjects: (r.owned_projects as number) ?? 0,
         }),
       )
     },
+
+    // ---------------- acesso ao sistema ----------------
+
+    canSignUp: (email) => signupRule(email),
+    async adminAccess(): Promise<AccessLists> {
+      const r = check(await sb.rpc('admin_access_lists')) as Row
+      const arr = (x: unknown) => (Array.isArray(x) ? (x as Row[]) : [])
+      return {
+        domains: arr(r.domains).map((d) => ({ domain: d.domain as string, note: (d.note as string) ?? '', createdAt: d.created_at as string, users: Number(d.users) || 0 })),
+        emails: arr(r.emails).map((e) => ({ email: e.email as string, note: (e.note as string) ?? '', createdAt: e.created_at as string, registered: Boolean(e.registered) })),
+        admins: arr(r.admins).map((a) => ({ email: a.email as string, registered: Boolean(a.registered), confirmed: Boolean(a.confirmed), me: Boolean(a.me) })),
+      }
+    },
+    async adminAddDomain(domain, note) { check(await sb.rpc('admin_add_domain', { p_domain: domain, p_note: note })) },
+    async adminUpdateDomain(oldDomain, domain, note) { check(await sb.rpc('admin_update_domain', { p_old: oldDomain, p_domain: domain, p_note: note })) },
+    async adminRemoveDomain(domain) { check(await sb.rpc('admin_remove_domain', { p_domain: domain })) },
+    async adminAddEmail(email, note) { check(await sb.rpc('admin_add_email', { p_email: email, p_note: note })) },
+    async adminRemoveEmail(email) { check(await sb.rpc('admin_remove_email', { p_email: email })) },
+    async adminAddAdmin(email) { check(await sb.rpc('admin_add_admin', { p_email: email })) },
+    async adminRemoveAdmin(email) { check(await sb.rpc('admin_remove_admin', { p_email: email })) },
+    async adminSetBlocked(userId, blocked) { check(await sb.rpc('admin_set_blocked', { p_user: userId, p_blocked: blocked })) },
+    async adminDeleteUser(userId) { check(await sb.rpc('admin_delete_user', { p_user: userId })) },
   }
 }

@@ -188,6 +188,17 @@ export interface AdminUser {
   projects: number
   openTasks: number
   unread: number
+  isAdmin: boolean
+  blocked: boolean
+  confirmed: boolean
+  ownedProjects: number
+}
+
+/** Regras de acesso ao sistema (área do administrador) */
+export interface AccessLists {
+  domains: { domain: string; note: string; createdAt: string; users: number }[]
+  emails: { email: string; note: string; createdAt: string; registered: boolean }[]
+  admins: { email: string; registered: boolean; confirmed: boolean; me: boolean }[]
 }
 
 export type TaskDraft = Omit<Task, 'id' | 'createdAt' | 'createdBy' | 'position'>

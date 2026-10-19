@@ -2278,3 +2278,83 @@ fieldset.plain {
   white-space: nowrap;
   font-size: 11.5px;
 }
+
+/* acesso ao sistema */
+.access-grid {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  align-items: start;
+}
+.access-box {
+  gap: 10px;
+}
+.access-warn {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: 7px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font-size: 13px;
+}
+.access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.access-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+.access-row:first-child {
+  padding-top: 2px;
+}
+.access-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.access-main strong {
+  overflow-wrap: anywhere;
+  font-size: 13.5px;
+}
+.access-main .hint {
+  font-size: 12px;
+}
+.access-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+.access-edit,
+.access-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+.access-add {
+  padding-top: 4px;
+}
+.access-add .btn,
+.access-edit .row {
+  align-self: flex-start;
+}
+.access-edit .row {
+  display: flex;
+  gap: 6px;
+}
+.user-actions {
+  margin: 0;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.row-blocked td {
+  opacity: 0.7;
+}

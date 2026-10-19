@@ -6,6 +6,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useEffect } from 'react'
+import { friendlyError } from '../data/repo'
 import { AuthProvider, useAuth } from '../state/AuthProvider'
 import { Badge, initials, personName } from './ui'
 
@@ -95,8 +96,12 @@ function DemoSwitcher() {
         className="input"
         value={session?.user.id ?? ''}
         onChange={async (e) => {
-          await repo.demoSwitch!(e.target.value)
-          router.push('/')
+          try {
+            await repo.demoSwitch!(e.target.value)
+            router.push('/')
+          } catch (err) {
+            window.alert(friendlyError(err))
+          }
         }}
       >
         {repo.demoUsers().map((u) => (
