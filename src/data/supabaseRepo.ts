@@ -4,7 +4,7 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
-  AccessLists,
+  AccessLists, TeamMessage, TeamWall,
   AdminDefaults, AdminProject, AdminUser, InboxThread, Member, Message, PendingInvite, Phase, Priority,
   ProjectSummary, Role, Snapshot, StatusId, Task, TaskDraft,
 } from '../types'
@@ -413,8 +413,47 @@ export function createSupabaseRepo(): Repo {
       const ch = sb
         .channel(`mensagens-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, onChange)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'team_messages' }, onChange)
         .subscribe()
       return () => void sb.removeChannel(ch)
+    },
+
+    // ---------------- mural da equipe ----------------
+
+    async teamInbox() {
+      const rows = check(await sb.rpc('team_inbox')) as Row[]
+      return rows.map(
+        (r): TeamWall => ({
+          projectId: r.project_id as string,
+          projectName: r.project_name as string,
+          unread: (r.unread as number) ?? 0,
+          lastBody: r.last_body as string,
+          lastAt: r.last_at as string,
+          lastSenderName: r.last_sender_name as string,
+          total: (r.total as number) ?? 0,
+        }),
+      )
+    },
+    async teamThread(projectId) {
+      const rows = check(await sb.rpc('team_thread', { p_project: projectId })) as Row[]
+      return rows.map(
+        (r): TeamMessage => ({
+          id: r.id as number,
+          projectId: r.project_id as string,
+          senderId: r.sender_id as string,
+          senderName: r.sender_name as string,
+          senderIsAdmin: Boolean(r.sender_is_admin),
+          taskId: (r.task_id as number | null) ?? null,
+          body: r.body as string,
+          createdAt: r.created_at as string,
+        }),
+      )
+    },
+    async sendTeamMessage(projectId, body, taskId) {
+      check(await sb.from('team_messages').insert({ project_id: projectId, body, task_id: taskId }))
+    },
+    async markTeamRead(projectId) {
+      check(await sb.rpc('mark_team_read', { p_project: projectId }))
     },
 
     // ---------------- administrador ----------------

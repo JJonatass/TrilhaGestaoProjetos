@@ -5,13 +5,16 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getRepo, type Repo, type Session } from '../data/repo'
-import type { InboxThread } from '../types'
+import type { InboxThread, TeamWall } from '../types'
 
 interface AuthState {
   repo: Repo | null
   session: Session | null
   loading: boolean
   inbox: InboxThread[]
+  /** murais das equipes com mensagens */
+  walls: TeamWall[]
+  /** não lidas somando conversas privadas e murais */
   unread: number
   refreshInbox: () => Promise<void>
   refreshSession: () => Promise<void>
@@ -24,16 +27,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [loading, setLoading] = useState(true)
   const [inbox, setInbox] = useState<InboxThread[]>([])
+  const [walls, setWalls] = useState<TeamWall[]>([])
   const repoRef = useRef<Repo | null>(null)
 
   const refreshInbox = useCallback(async () => {
     const r = repoRef.current
     if (!r) return
-    try {
-      setInbox(await r.inbox())
-    } catch {
-      setInbox([])
-    }
+    const [a, b] = await Promise.allSettled([r.inbox(), r.teamInbox()])
+    setInbox(a.status === 'fulfilled' ? a.value : [])
+    setWalls(b.status === 'fulfilled' ? b.value : [])
   }, [])
 
   const refreshSession = useCallback(async () => {
@@ -58,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!repo || !session) {
       setInbox([])
+      setWalls([])
       return
     }
     void refreshInbox()
@@ -74,10 +77,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [repo, session, refreshInbox])
 
-  const unread = inbox.reduce((s, t) => s + t.unread, 0)
+  const unread = inbox.reduce((s, t) => s + t.unread, 0) + walls.reduce((s, w) => s + w.unread, 0)
 
   return (
-    <Ctx.Provider value={{ repo, session, loading, inbox, unread, refreshInbox, refreshSession }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ repo, session, loading, inbox, walls, unread, refreshInbox, refreshSession }}>{children}</Ctx.Provider>
   )
 }
 

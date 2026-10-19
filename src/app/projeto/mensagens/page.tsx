@@ -2,6 +2,7 @@
 
 import { useSearchParams } from 'next/navigation'
 import { useEffect, useState } from 'react'
+import { TeamWall } from '../../../components/TeamWall'
 import { Thread } from '../../../components/Thread'
 import { Badge, initials, personName } from '../../../components/ui'
 import { useAuth } from '../../../state/AuthProvider'
@@ -9,28 +10,56 @@ import { useProject } from '../../../state/ProjectProvider'
 
 export default function ProjetoMensagensPage() {
   const { snap, isAdminView, me, projectId } = useProject()
-  const { inbox, session } = useAuth()
+  const { inbox, session, walls } = useAuth()
   const params = useSearchParams()
   const [selected, setSelected] = useState<string | null>(params.get('u'))
+  // abre direto na conversa privada quando o link aponta para ela (?u= ou ?privada=1)
+  const [view, setView] = useState<'mural' | 'privada'>(params.get('u') || params.get('privada') ? 'privada' : 'mural')
   const taskParam = params.get('t')
 
   useEffect(() => {
     const u = params.get('u')
-    if (u) setSelected(u)
+    if (u) {
+      setSelected(u)
+      setView('privada')
+    }
   }, [params])
 
   if (!snap) return null
   const tasks = snap.tasks.map((t) => ({ id: t.id, title: t.title }))
+  const wallUnread = walls.find((w) => w.projectId === projectId)?.unread ?? 0
+  const privateUnread = inbox.filter((t) => t.projectId === projectId).reduce((s, t) => s + t.unread, 0)
+
+  const switcher = (
+    <div className="seg msg-switch" role="group" aria-label="Tipo de conversa">
+      <button type="button" aria-pressed={view === 'mural'} onClick={() => setView('mural')}>
+        Mural da equipe <Badge n={wallUnread} />
+      </button>
+      <button type="button" aria-pressed={view === 'privada'} onClick={() => setView('privada')}>
+        {isAdminView ? 'Conversas individuais' : 'Conversa com o professor'} <Badge n={privateUnread} />
+      </button>
+    </div>
+  )
+
+  if (view === 'mural') {
+    return (
+      <div className="page narrow">
+        {switcher}
+        <TeamWall projectId={projectId} projectName={snap.meta.name} tasks={tasks} members={snap.members.length} />
+      </div>
+    )
+  }
 
   // Integrante: uma única conversa, com o administrador
   if (!isAdminView) {
     return (
       <div className="page narrow">
+        {switcher}
         <Thread
           projectId={projectId}
           userId={me!}
-          title="Conversa com o administrador"
-          subtitle="Comentários sobre o seu trabalho neste projeto. Só você e o administrador veem esta conversa."
+          title="Conversa com o professor"
+          subtitle="Comentários sobre o seu trabalho neste projeto. Só você e o professor veem esta conversa. Para falar com a equipe, use o Mural."
           tasks={tasks}
           emptyText="Nenhuma mensagem ainda. Você pode escrever para tirar dúvidas ou pedir orientação."
         />
@@ -46,6 +75,7 @@ export default function ProjetoMensagensPage() {
 
   return (
     <div className="page">
+      {switcher}
       <div className={`inbox ${current ? 'has-open' : ''}`}>
         <nav className="inbox-list" aria-label="Integrantes">
           <p className="hint" style={{ margin: '4px 4px 10px' }}>Escolha com quem conversar. Cada conversa é individual.</p>

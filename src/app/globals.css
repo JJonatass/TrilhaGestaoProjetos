@@ -2358,3 +2358,75 @@ fieldset.plain {
 .row-blocked td {
   opacity: 0.7;
 }
+
+/* mural da equipe */
+.msg-switch {
+  margin-bottom: 12px;
+  max-width: 100%;
+}
+.msg-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  font-size: 13.5px;
+}
+.wall-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+.wall-row.mine {
+  justify-content: flex-end;
+}
+.wall-row.grouped {
+  margin-top: -4px;
+}
+.wall-row .avatar {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  font-size: 11px;
+}
+.wall-row .avatar.admin {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.wall-row .msg {
+  max-width: min(78%, 560px);
+}
+.msg-author {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 2px;
+  white-space: normal;
+}
+.msg-author .role-tag {
+  font-size: 9.5px;
+  padding: 1px 5px;
+}
+
+.inbox-group {
+  margin: 10px 6px 4px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.inbox-group:first-child {
+  margin-top: 2px;
+}
+a.inbox-item {
+  color: inherit;
+  text-decoration: none;
+}
+.avatar.wall {
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}

@@ -48,6 +48,8 @@ O app está publicado na **Vercel** (plano gratuito): **https://trilha-gestao-pr
 - Remover só desativa o registro (fica a data). A regra vale no cadastro, na troca de e-mail e nos convites, e é aplicada pelo banco.
 - Na tabela **Usuários**: tornar/tirar admin, bloquear/desbloquear e excluir conta (apaga a conta, os projetos que ela criou e as mensagens).
 
+**Mural da equipe:** na aba **Mensagens** de cada projeto, uma conversa do grupo que todos os integrantes (inclusive leitores) e o administrador leem e escrevem, com nome e iniciais de quem escreveu. As mensagens do professor aparecem marcadas. Não lidas somam no aviso da barra superior e aparecem na caixa **Mensagens**. A conversa privada professor ↔ aluno continua ao lado.
+
 **Relatório PDF:** botão **Relatório PDF** no topo de qualquer projeto. Gerado no navegador, com resumo, burndown, progresso por fase, equipe, prazos vencidos, todas as tarefas e sprints.
 
 **Salvar no Google Drive (com autorização do admin):** o admin libera por projeto ou para todos. O aluno clica em **Salvar no Drive** e o projeto completo vai para o Drive dele como `Nome.trilha.json` (sem mensagens e convites). Em **Abrir arquivo do Drive** (`/arquivo`), o arquivo abre **sem Supabase e sem conta no sistema**, só com o login do Google: quadro, cronograma, métricas e painel funcionam, e as alterações são salvas de volta no mesmo arquivo.
@@ -80,9 +82,10 @@ Tudo é garantido pelo banco (Row Level Security), não só pela interface. O hi
 ```
 supabase/
   setup.sql               script único para o SQL Editor
-  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe, acesso)
+  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe, acesso, mural)
   tests/rls.test.mjs      51 testes das regras de acesso num Postgres em memória
   tests/limite.test.mjs   18 testes do limite de integrantes
+  tests/mural.test.mjs    16 testes do mural da equipe
   tests/acesso.test.mjs   54 testes de domínios, e-mails liberados, admins, bloqueio e exclusão
 src/
   app/                    rotas: /entrar, / (projetos), /perfil, /mensagens, /admin,

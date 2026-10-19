@@ -5,7 +5,7 @@
 import { addDays, today } from '../lib/dates'
 import type {
   AdminProject, AdminUser, InboxThread, Member, Message, PendingInvite, Phase, Priority,
-  Profile, ProjectMeta, Role, Snapshot, Sprint, StatusChange, StatusId, Task,
+  Profile, ProjectMeta, Role, Snapshot, Sprint, StatusChange, StatusId, Task, TeamMessage, TeamWall,
 } from '../types'
 import type { Repo, Session } from './repo'
 
@@ -24,6 +24,8 @@ interface Db {
   sprints: (Sprint & { projectId: string })[]
   history: (StatusChange & { projectId: string })[]
   messages: Message[]
+  teamMessages?: { id: number; projectId: string; senderId: string; taskId: number | null; body: string; createdAt: string }[]
+  teamReads?: Record<string, string> // `${projeto}|${usuário}` → lido até
   seq: number
   sessionUserId: string | null
   defaults: { expiresAt: string | null; driveExport: boolean; maxMembers?: number | null }
@@ -169,6 +171,16 @@ export function createDemoRepo(): Repo {
       { domain: 'exemplo.com', note: 'Perfis de demonstração', createdAt: now },
     ]
     d.allowedEmails ??= []
+    if (!d.teamMessages) {
+      const ago = (h: number) => new Date(Date.now() - h * 3600_000).toISOString()
+      d.teamMessages = [
+        { id: 9001, projectId: 'p-monitorias', senderId: 'u-ana', taskId: null, body: 'Pessoal, reunião rápida amanhã às 19h para fechar o sprint. Tragam o que travou.', createdAt: ago(20) },
+        { id: 9002, projectId: 'p-monitorias', senderId: 'u-diego', taskId: null, body: 'Fechado. A agenda de monitorias ainda depende do login, vou falar com o Bruno.', createdAt: ago(18) },
+        { id: 9003, projectId: 'p-monitorias', senderId: 'u-bruno', taskId: null, body: 'Login com Google está em revisão, deve sair hoje.', createdAt: ago(17) },
+        { id: 9004, projectId: 'p-monitorias', senderId: 'u-jonatas', taskId: null, body: 'Bom ritmo, equipe. Lembrem de atualizar as datas no cronograma depois da reunião.', createdAt: ago(3) },
+      ]
+    }
+    d.teamReads ??= {}
     return d
   }
   function save() {
@@ -462,6 +474,41 @@ export function createDemoRepo(): Repo {
       if (n) { save(); msgListeners.forEach((f) => f()) }
     },
     subscribeMessages(onChange) { msgListeners.add(onChange); return () => msgListeners.delete(onChange) },
+
+    async teamInbox() {
+      const uid = db.sessionUserId!
+      const admin = isAdmin()
+      const ids = [...new Set(db.teamMessages!.map((m) => m.projectId))].filter((p) => admin || role(p))
+      const nameOf = (id: string) => { const u = db.users.find((x) => x.id === id); return u?.fullName || u?.email.split('@')[0] || '' }
+      return delay(ids.map((p): TeamWall => {
+        const list = db.teamMessages!.filter((m) => m.projectId === p).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        const last = list[list.length - 1]
+        const readAt = db.teamReads![`${p}|${uid}`] ?? ''
+        return {
+          projectId: p, projectName: db.projects.find((x) => x.id === p)?.name ?? '',
+          unread: list.filter((m) => m.senderId !== uid && m.createdAt > readAt).length,
+          lastBody: last.body, lastAt: last.createdAt, lastSenderName: nameOf(last.senderId), total: list.length,
+        }
+      }).sort((a, b) => b.lastAt.localeCompare(a.lastAt)))
+    },
+    async teamThread(projectId) {
+      if (!role(projectId) && !isAdmin()) throw new Error('Você não participa deste projeto')
+      return delay(db.teamMessages!.filter((m) => m.projectId === projectId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map((m): TeamMessage => {
+        const u = db.users.find((x) => x.id === m.senderId)
+        const member = db.members.some((x) => x.projectId === projectId && x.userId === m.senderId)
+        return { ...m, senderName: u?.fullName || u?.email.split('@')[0] || '', senderIsAdmin: !!u && db.admins.includes(u.email) && !member }
+      }))
+    },
+    async sendTeamMessage(projectId, body, taskId) {
+      if (!role(projectId) && !isAdmin()) throw new Error('Você não participa deste projeto')
+      db.teamMessages!.push({ id: ++db.seq, projectId, senderId: db.sessionUserId!, taskId, body, createdAt: new Date().toISOString() })
+      db.teamReads![`${projectId}|${db.sessionUserId}`] = new Date().toISOString()
+      save(); msgListeners.forEach((f) => f())
+    },
+    async markTeamRead(projectId) {
+      db.teamReads![`${projectId}|${db.sessionUserId}`] = new Date().toISOString()
+      save(); msgListeners.forEach((f) => f())
+    },
 
     async adminProjects() {
       if (!isAdmin()) throw new Error('Acesso restrito ao administrador')

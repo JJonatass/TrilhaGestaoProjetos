@@ -10,7 +10,7 @@ import { Badge, initials, timeAgo } from './ui'
 import { Thread } from './Thread'
 
 export function InboxView() {
-  const { inbox, session, unread } = useAuth()
+  const { inbox, walls, session, unread } = useAuth()
   const [open, setOpen] = useState<string | null>(null)
   const isAdmin = !!session?.isAdmin
   const key = (p: string, u: string) => `${p}|${u}`
@@ -23,8 +23,8 @@ export function InboxView() {
           <h1>Mensagens</h1>
           <p className="hint">
             {isAdmin
-              ? 'Conversas com os integrantes dos projetos. Cada conversa fica registrada no projeto do aluno.'
-              : 'Comentários do administrador sobre os seus projetos. Você pode responder por aqui.'}
+              ? 'Murais das equipes e conversas individuais com os integrantes. Tudo fica registrado no projeto.'
+              : 'Murais das suas equipes e a conversa privada com o professor em cada projeto.'}
           </p>
         </div>
         {unread > 0 && <span className="pill warn">{unread} não lida{unread > 1 ? 's' : ''}</span>}
@@ -32,7 +32,23 @@ export function InboxView() {
 
       <div className={`inbox ${current ? 'has-open' : ''}`}>
         <nav className="inbox-list" aria-label="Conversas">
-          {inbox.length === 0 && (
+          {walls.length > 0 && <p className="inbox-group">Murais das equipes</p>}
+          {walls.map((w) => (
+            <Link key={`mural-${w.projectId}`} href={`/projeto/mensagens/?id=${w.projectId}`} className={`inbox-item ${w.unread ? 'unread' : ''}`}>
+              <span className="avatar wall" aria-hidden>{initials(w.projectName)}</span>
+              <span className="inbox-text">
+                <span className="inbox-top">
+                  <strong>{w.projectName}</strong>
+                  <time>{timeAgo(w.lastAt)}</time>
+                </span>
+                <span className="inbox-project">Mural da equipe · {w.total} mensage{w.total === 1 ? 'm' : 'ns'}</span>
+                <span className="inbox-last">{w.lastSenderName}: {w.lastBody}</span>
+              </span>
+              <Badge n={w.unread} />
+            </Link>
+          ))}
+          {walls.length > 0 && inbox.length > 0 && <p className="inbox-group">{isAdmin ? 'Conversas individuais' : 'Conversas com o professor'}</p>}
+          {inbox.length === 0 && walls.length === 0 && (
             <p className="empty">
               {isAdmin ? (
                 <>Nenhuma conversa ainda. Abra um projeto no <Link href="/admin/">painel do administrador</Link> para comentar com os integrantes.</>

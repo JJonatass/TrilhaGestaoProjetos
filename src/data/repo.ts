@@ -3,7 +3,7 @@
 // - demoRepo: dados fictícios no navegador, para aulas e testes sem conta.
 
 import type {
-  AccessLists, AdminDefaults, AdminProject, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
+  AccessLists, AdminDefaults, AdminProject, TeamMessage, TeamWall, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
   ProjectSummary, Role, Snapshot, Sprint, StatusId, Task, TaskDraft,
 } from '../types'
 
@@ -65,6 +65,12 @@ export interface Repo {
   sendMessage(projectId: string, userId: string, body: string, taskId: number | null): Promise<void>
   markRead(projectId: string, userId: string): Promise<void>
   subscribeMessages(onChange: () => void): Unsubscribe
+
+  // ---- mural da equipe ----
+  teamInbox(): Promise<TeamWall[]>
+  teamThread(projectId: string): Promise<TeamMessage[]>
+  sendTeamMessage(projectId: string, body: string, taskId: number | null): Promise<void>
+  markTeamRead(projectId: string): Promise<void>
 
   // ---- administrador ----
   adminProjects(): Promise<AdminProject[]>

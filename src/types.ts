@@ -146,6 +146,29 @@ export interface Message {
   readAt: string | null
 }
 
+/** Mensagem do mural da equipe (conversa do grupo) */
+export interface TeamMessage {
+  id: number
+  projectId: string
+  senderId: string
+  senderName: string
+  senderIsAdmin: boolean // administrador do sistema que não é integrante
+  taskId: number | null
+  body: string
+  createdAt: string
+}
+
+/** Mural com mensagens, para a caixa de entrada */
+export interface TeamWall {
+  projectId: string
+  projectName: string
+  unread: number
+  lastBody: string
+  lastAt: string
+  lastSenderName: string
+  total: number
+}
+
 export interface InboxThread {
   projectId: string
   projectName: string

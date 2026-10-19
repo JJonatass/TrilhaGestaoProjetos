@@ -47,7 +47,7 @@ function WithId({ children }: { children: React.ReactNode }) {
 
 function Frame({ children }: { children: React.ReactNode }) {
   const p = useProject()
-  const { inbox } = useAuth()
+  const { inbox, walls } = useAuth()
   const pathname = (usePathname() || '/').replace(/\/$/, '')
   const [name, setName] = useState('')
   useEffect(() => setName(p.snap?.meta.name ?? ''), [p.snap?.meta.name])
@@ -63,7 +63,9 @@ function Frame({ children }: { children: React.ReactNode }) {
   }
   if (!p.snap) return <div className="loading">Abrindo projeto…</div>
 
-  const unread = inbox.filter((t) => t.projectId === p.projectId).reduce((s, t) => s + t.unread, 0)
+  const unread =
+    inbox.filter((t) => t.projectId === p.projectId).reduce((s, t) => s + t.unread, 0) +
+    (walls.find((w) => w.projectId === p.projectId)?.unread ?? 0)
   const late = p.snap.tasks.filter((t) => t.status !== 'done' && t.due && t.due < today()).length
 
   return (
@@ -118,7 +120,7 @@ function Frame({ children }: { children: React.ReactNode }) {
       })()}
       {p.isAdminView && (
         <div className="sample-note">
-          <span><strong>Visão do administrador.</strong> Você vê o projeto como leitura e pode comentar com os integrantes na aba Mensagens.</span>
+          <span><strong>Visão do administrador.</strong> Você vê o projeto como leitura e pode escrever no mural da equipe ou comentar com cada integrante na aba Mensagens.</span>
         </div>
       )}
       {!p.isAdminView && p.role === 'viewer' && (
