@@ -1,9 +1,10 @@
 // Relatório do projeto em PDF, gerado no navegador (jsPDF + autotable).
 
+import { columnOf, projectColumns } from './columns'
 import { parseDay, shortDate, today } from './dates'
 import { formatDate } from './expiry'
 import { burn, criticalPath, daysLate, flowTimes, isLate, projectHealth, schedule, throughput } from './metrics'
-import { PHASES, PRIORITIES, ROLE_LABEL, STATUSES, type Snapshot } from '../types'
+import { PHASES, PRIORITIES, ROLE_LABEL, STATUSES, type Snapshot, type Task } from '../types'
 
 // As fontes padrão do PDF cobrem português, mas não setas e símbolos especiais
 const clean = (s: string) =>
@@ -38,7 +39,8 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
     const m = snap.members.find((x) => x.id === id)
     return m ? m.fullName || m.email : 'Ex-integrante'
   }
-  const statusLabel = (s: string) => STATUSES.find((x) => x.id === s)?.label ?? s
+  const cols = projectColumns(snap.meta)
+  const colLabel = (t: Task) => columnOf(t, cols).label
   const prioLabel = (s: string) => PRIORITIES.find((x) => x.id === s)?.label ?? s
   const fmtDay = (d: string | null) => (d ? parseDay(d).toLocaleDateString('pt-BR') : '-')
   const num = (v: number | null) => (v === null ? '-' : v.toFixed(1).replace('.', ','))
@@ -112,6 +114,7 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
     ['Situação', healthLabel, health.reasons.join('; ')],
     ['Concluído', `${totalPts ? Math.round((donePts / totalPts) * 100) : 0}% (${donePts} de ${totalPts} pts)`, 'Esforço estimado já em Feito'],
     ['Tarefas atrasadas', String(late.length), 'Prazo vencido e não concluídas'],
+    ['Bugs abertos', String(snap.tasks.filter((t) => t.kind === 'bug' && t.status !== 'done').length), 'Itens do tipo bug ainda não concluídos'],
     ['Lead time médio', `${num(times.leadTime)} dias`, 'Da criação até Feito'],
     ['Cycle time médio', `${num(times.cycleTime)} dias`, 'De Fazendo até Feito'],
     ['Término previsto', end ? fmtDay(end) : '-', 'Maior data de fim no cronograma'],
@@ -168,6 +171,20 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
   })
   table(['Fase', 'Tarefas', 'Concluídas', 'Pontos', 'Progresso'], phaseRows)
 
+  // ---------- épicos ----------
+  if (snap.epics.length) {
+    title('Progresso por épico')
+    table(
+      ['Épico', 'Tarefas', 'Concluídas', 'Pontos', 'Progresso'],
+      snap.epics.map((e) => {
+        const items = snap.tasks.filter((t) => t.epicId === e.id)
+        const tot = items.reduce((a, t) => a + (t.milestone ? 0 : t.points), 0)
+        const done = items.filter((t) => t.status === 'done').reduce((a, t) => a + (t.milestone ? 0 : t.points), 0)
+        return [e.name, items.length, items.filter((t) => t.status === 'done').length, `${done}/${tot}`, `${tot ? Math.round((done / tot) * 100) : 0}%`]
+      }),
+    )
+  }
+
   // ---------- equipe ----------
   title('Equipe')
   table(
@@ -189,7 +206,7 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
     title('Prazos vencidos')
     table(
       ['Tarefa', 'Responsáveis', 'Coluna', 'Prazo', 'Atraso'],
-      late.map((t) => [t.title, t.assignees.map(name).join(', ') || '-', statusLabel(t.status), fmtDay(t.due), `${daysLate(t)} dias`]),
+      late.map((t) => [t.title, t.assignees.map(name).join(', ') || '-', colLabel(t), fmtDay(t.due), `${daysLate(t)} dias`]),
       { bodyStyles: { textColor: LATE } },
     )
   }
@@ -203,9 +220,14 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
   table(
     ['Tarefa', 'Fase', 'Coluna', 'Responsáveis', 'Prior.', 'Pts', 'Início', 'Prazo'],
     tasks.map((t) => [
-      (t.milestone ? '[Marco] ' : '') + t.title + (critical.has(t.id) ? ' *' : ''),
+      (t.milestone ? '[Marco] ' : t.kind === 'bug' ? '[Bug] ' : t.kind === 'historia' ? '[História] ' : '') +
+        t.title +
+        (critical.has(t.id) ? ' *' : '') +
+        (t.epicId && snap.epics.find((e) => e.id === t.epicId) ? `\nÉpico: ${snap.epics.find((e) => e.id === t.epicId)!.name}` : '') +
+        (t.labels.length ? `\nRótulos: ${t.labels.map((l) => snap.labels.find((x) => x.id === l)?.name).filter(Boolean).join(', ')}` : '') +
+        (t.checklist.length ? `\nChecklist: ${t.checklist.filter((c) => c.done).length}/${t.checklist.length}` : ''),
       t.phase,
-      statusLabel(t.status),
+      colLabel(t),
       t.assignees.map(name).join(', ') || '-',
       prioLabel(t.priority),
       t.milestone ? '-' : t.points,
@@ -228,10 +250,13 @@ export async function downloadProjectPdf(snap: Snapshot, generatedBy: string) {
   if (snap.sprints.length) {
     title('Sprints')
     table(
-      ['Sprint', 'Período', 'Tarefas', 'Pontos concluídos'],
+      ['Sprint', 'Período', 'Objetivo', 'Situação', 'Pontos entregues'],
       snap.sprints.map((s) => {
+        if (s.report) {
+          return [s.name, `${fmtDay(s.start)} a ${fmtDay(s.end)}`, s.goal || '-', `Encerrado (${s.report.carried.length} levada${s.report.carried.length === 1 ? '' : 's'} adiante)`, `${s.report.completedPoints} de ${s.report.committedPoints}`]
+        }
         const ts = snap.tasks.filter((t) => t.sprintId === s.id)
-        return [s.name, `${fmtDay(s.start)} a ${fmtDay(s.end)}`, ts.length, `${ts.filter((t) => t.status === 'done').reduce((a, t) => a + t.points, 0)} de ${ts.reduce((a, t) => a + t.points, 0)}`]
+        return [s.name, `${fmtDay(s.start)} a ${fmtDay(s.end)}`, s.goal || '-', 'Aberto', `${ts.filter((t) => t.status === 'done').reduce((a, t) => a + t.points, 0)} de ${ts.reduce((a, t) => a + t.points, 0)}`]
       }),
     )
   }

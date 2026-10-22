@@ -4,7 +4,8 @@
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type {
-  AccessLists, TeamMessage, TeamWall,
+  AccessLists, Activity, AppNotification, ColumnDef, Epic, FilterQuery, Kind, Label, SavedFilter, Sprint, SprintReport,
+  TaskComment, TeamMessage, TeamWall,
   AdminDefaults, AdminProject, AdminUser, InboxThread, Member, Message, PendingInvite, Phase, Priority,
   ProjectSummary, Role, Snapshot, StatusId, Task, TaskDraft,
 } from '../types'
@@ -30,8 +31,36 @@ const taskToRow = (d: Partial<TaskDraft & { position: number }>) => {
   if (d.due !== undefined) r.due_date = d.due
   if (d.milestone !== undefined) r.milestone = d.milestone
   if (d.position !== undefined) r.position = d.position
+  if (d.kind !== undefined) r.kind = d.kind
+  if (d.epicId !== undefined) r.epic_id = d.epicId
+  if (d.columnKey !== undefined) r.column_key = d.columnKey
   return r
 }
+
+const toReport = (x: unknown): SprintReport | null => {
+  if (!x || typeof x !== 'object') return null
+  const o = x as Row
+  return {
+    committedPoints: Number(o.committed_points) || 0,
+    completedPoints: Number(o.completed_points) || 0,
+    committedTasks: Number(o.committed_tasks) || 0,
+    completedTasks: Number(o.completed_tasks) || 0,
+    completed: (o.completed as number[]) ?? [],
+    carried: (o.carried as number[]) ?? [],
+    bugsOpen: Number(o.bugs_open) || 0,
+    nextSprint: (o.next_sprint as number | null) ?? null,
+  }
+}
+
+const toSprint = (s: Row): Sprint => ({
+  id: s.id as number,
+  name: s.name as string,
+  start: s.start_date as string,
+  end: s.end_date as string,
+  goal: (s.goal as string) ?? '',
+  closedAt: (s.closed_at as string | null) ?? null,
+  report: toReport(s.report),
+})
 
 export function createSupabaseRepo(): Repo {
   const sb: SupabaseClient = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
@@ -184,7 +213,7 @@ export function createSupabaseRepo(): Repo {
     // ---------------- um projeto ----------------
 
     async loadProject(id) {
-      const [proj, members, invites, tasks, assignees, deps, sprints, history] = await Promise.all([
+      const [proj, members, invites, tasks, assignees, deps, sprints, history, epics, labels, taskLabels, checklist, filters] = await Promise.all([
         sb.from('projects').select('*').eq('id', id).single(),
         sb.from('project_members').select('user_id, role, joined_at, profiles(id, email, full_name)').eq('project_id', id),
         sb.from('project_invites').select('id, email, role, created_at').eq('project_id', id).is('accepted_at', null).order('created_at'),
@@ -193,6 +222,11 @@ export function createSupabaseRepo(): Repo {
         sb.from('task_dependencies').select('task_id, depends_on').eq('project_id', id),
         sb.from('sprints').select('*').eq('project_id', id).order('start_date'),
         sb.from('status_history').select('id, task_id, from_status, to_status, at, changed_by').eq('project_id', id).order('at').order('id'),
+        sb.from('epics').select('*').eq('project_id', id).order('position').order('id'),
+        sb.from('labels').select('*').eq('project_id', id).order('name'),
+        sb.from('task_labels').select('task_id, label_id').eq('project_id', id),
+        sb.from('checklist_items').select('*').eq('project_id', id).order('position').order('id'),
+        sb.from('saved_filters').select('*').eq('project_id', id).order('name'),
       ])
       const p = check(proj) as Row
       const asg = new Map<number, string[]>()
@@ -207,6 +241,25 @@ export function createSupabaseRepo(): Repo {
         list.push(d.depends_on as number)
         dep.set(d.task_id as number, list)
       }
+      const lbl = new Map<number, number[]>()
+      for (const x of check(taskLabels) as Row[]) {
+        const list = lbl.get(x.task_id as number) ?? []
+        list.push(x.label_id as number)
+        lbl.set(x.task_id as number, list)
+      }
+      const chk = new Map<number, Task['checklist']>()
+      for (const c of check(checklist) as Row[]) {
+        const list = chk.get(c.task_id as number) ?? []
+        list.push({
+          id: c.id as number,
+          title: c.title as string,
+          done: Boolean(c.done),
+          position: c.position as number,
+          doneBy: (c.done_by as string | null) ?? null,
+          doneAt: (c.done_at as string | null) ?? null,
+        })
+        chk.set(c.task_id as number, list)
+      }
       const snap: Snapshot = {
         meta: {
           id: p.id as string,
@@ -218,6 +271,14 @@ export function createSupabaseRepo(): Repo {
           expiresAt: (p.expires_at as string | null) ?? null,
           driveExportAllowed: Boolean(p.drive_export_allowed),
           maxMembers: (p.max_members as number | null) ?? null,
+          columns: Array.isArray(p.columns)
+            ? (p.columns as Row[]).map((c): ColumnDef => ({
+                id: c.id as string,
+                label: c.label as string,
+                category: c.category as StatusId,
+                wip: (c.wip as number | null) ?? null,
+              }))
+            : null,
         },
         members: (check(members) as Row[])
           .map((m): Member => {
@@ -252,17 +313,17 @@ export function createSupabaseRepo(): Repo {
             due: (r.due_date as string | null) ?? null,
             milestone: r.milestone as boolean,
             dependsOn: dep.get(r.id as number) ?? [],
+            kind: ((r.kind as Kind) ?? 'tarefa'),
+            epicId: (r.epic_id as number | null) ?? null,
+            labels: lbl.get(r.id as number) ?? [],
+            columnKey: (r.column_key as string | null) ?? null,
+            checklist: chk.get(r.id as number) ?? [],
             createdAt: r.created_at as string,
             createdBy: (r.created_by as string | null) ?? null,
             position: r.position as number,
           }),
         ),
-        sprints: (check(sprints) as Row[]).map((s) => ({
-          id: s.id as number,
-          name: s.name as string,
-          start: s.start_date as string,
-          end: s.end_date as string,
-        })),
+        sprints: (check(sprints) as Row[]).map(toSprint),
         history: (check(history) as Row[]).map((h) => ({
           id: h.id as number,
           taskId: h.task_id as number,
@@ -271,13 +332,29 @@ export function createSupabaseRepo(): Repo {
           at: h.at as string,
           changedBy: (h.changed_by as string | null) ?? null,
         })),
+        epics: (check(epics) as Row[]).map((e): Epic => ({
+          id: e.id as number,
+          name: e.name as string,
+          color: e.color as string,
+          description: (e.description as string) ?? '',
+          position: e.position as number,
+        })),
+        labels: (check(labels) as Row[]).map((l): Label => ({ id: l.id as number, name: l.name as string, color: l.color as string })),
+        savedFilters: (check(filters) as Row[]).map((f): SavedFilter => ({
+          id: f.id as number,
+          name: f.name as string,
+          ownerId: f.owner_id as string,
+          shared: Boolean(f.shared),
+          query: (f.query as FilterQuery) ?? {},
+        })),
       }
       return snap
     },
 
     subscribeProject(id, onChange) {
       const ch = sb.channel(`projeto-${id}-${Math.random().toString(36).slice(2)}`)
-      for (const table of ['tasks', 'task_assignees', 'task_dependencies', 'sprints', 'status_history', 'project_members']) {
+      for (const table of ['tasks', 'task_assignees', 'task_dependencies', 'sprints', 'status_history', 'project_members',
+        'epics', 'labels', 'task_labels', 'checklist_items', 'saved_filters', 'task_comments']) {
         ch.on('postgres_changes', { event: '*', schema: 'public', table, filter: `project_id=eq.${id}` }, onChange)
       }
       ch.on('postgres_changes', { event: '*', schema: 'public', table: 'projects', filter: `id=eq.${id}` }, onChange)
@@ -290,6 +367,7 @@ export function createSupabaseRepo(): Repo {
       if (patch.name !== undefined) r.name = patch.name
       if (patch.wip !== undefined) r.wip = patch.wip
       if (patch.selfAssign !== undefined) r.self_assign = patch.selfAssign
+      if (patch.columns !== undefined) r.columns = patch.columns
       check(await sb.from('projects').update(r).eq('id', id))
     },
 
@@ -306,6 +384,7 @@ export function createSupabaseRepo(): Repo {
         check(await sb.from('task_dependencies').insert(d.dependsOn.map((x) => ({ task_id: id, depends_on: x, project_id: projectId }))))
       }
       for (const u of d.assignees) check(await sb.from('task_assignees').insert({ task_id: id, user_id: u, project_id: projectId }))
+      if (d.labels.length) check(await sb.from('task_labels').insert(d.labels.map((l) => ({ task_id: id, label_id: l, project_id: projectId }))))
       return id
     },
 
@@ -314,8 +393,8 @@ export function createSupabaseRepo(): Repo {
       if (Object.keys(r).length) check(await sb.from('tasks').update(r).eq('id', id))
     },
 
-    async moveTask(_projectId, id, status, position) {
-      check(await sb.from('tasks').update({ status, position }).eq('id', id))
+    async moveTask(_projectId, id, status, position, columnKey = null) {
+      check(await sb.from('tasks').update({ status, position, column_key: columnKey }).eq('id', id))
     },
 
     async deleteTask(_projectId, id) {
@@ -334,12 +413,134 @@ export function createSupabaseRepo(): Repo {
       }
     },
 
+    async setLabels(projectId, taskId, labelIds) {
+      const cur = (check(await sb.from('task_labels').select('label_id').eq('task_id', taskId)) as Row[]).map((x) => x.label_id as number)
+      const add = labelIds.filter((x) => !cur.includes(x))
+      const del = cur.filter((x) => !labelIds.includes(x))
+      if (del.length) check(await sb.from('task_labels').delete().eq('task_id', taskId).in('label_id', del))
+      if (add.length) check(await sb.from('task_labels').insert(add.map((l) => ({ task_id: taskId, label_id: l, project_id: projectId }))))
+    },
+
+    async addChecklistItem(projectId, taskId, title) {
+      check(await sb.from('checklist_items').insert({ task_id: taskId, project_id: projectId, title: title.trim(), position: Date.now() / 1e6 }))
+    },
+    async updateChecklistItem(_projectId, id, patch) {
+      const r: Row = {}
+      if (patch.title !== undefined) r.title = patch.title.trim()
+      if (patch.done !== undefined) r.done = patch.done
+      if (patch.position !== undefined) r.position = patch.position
+      check(await sb.from('checklist_items').update(r).eq('id', id))
+    },
+    async deleteChecklistItem(_projectId, id) {
+      check(await sb.from('checklist_items').delete().eq('id', id))
+    },
+
+    async addEpic(projectId, e) {
+      check(await sb.from('epics').insert({ project_id: projectId, name: e.name.trim(), color: e.color, description: e.description, position: e.position }))
+    },
+    async updateEpic(_projectId, e) {
+      check(await sb.from('epics').update({ name: e.name.trim(), color: e.color, description: e.description, position: e.position }).eq('id', e.id))
+    },
+    async deleteEpic(_projectId, id) {
+      check(await sb.from('epics').delete().eq('id', id))
+    },
+    async addLabel(projectId, l) {
+      const res = await sb.from('labels').insert({ project_id: projectId, name: l.name.trim(), color: l.color })
+      if (res.error?.code === '23505') throw new Error('Já existe um rótulo com esse nome.')
+      check(res)
+    },
+    async updateLabel(_projectId, l) {
+      const res = await sb.from('labels').update({ name: l.name.trim(), color: l.color }).eq('id', l.id)
+      if (res.error?.code === '23505') throw new Error('Já existe um rótulo com esse nome.')
+      check(res)
+    },
+    async deleteLabel(_projectId, id) {
+      check(await sb.from('labels').delete().eq('id', id))
+    },
+
+    supportsComments: true,
+    async listComments(_projectId, taskId) {
+      const rows = check(
+        await sb.from('task_comments').select('id, task_id, author_id, body, mentions, created_at, profiles(full_name, email)').eq('task_id', taskId).order('created_at'),
+      ) as Row[]
+      return rows.map((c): TaskComment => {
+        const pr = c.profiles as Row | null
+        return {
+          id: c.id as number,
+          taskId: c.task_id as number,
+          authorId: c.author_id as string,
+          authorName: pr ? ((pr.full_name as string) || String(pr.email).split('@')[0]) : 'Professor',
+          body: c.body as string,
+          mentions: (c.mentions as string[]) ?? [],
+          createdAt: c.created_at as string,
+        }
+      })
+    },
+    async addComment(projectId, taskId, body, mentions) {
+      check(await sb.from('task_comments').insert({ task_id: taskId, project_id: projectId, body: body.trim(), mentions }))
+    },
+    async deleteComment(_projectId, id) {
+      check(await sb.from('task_comments').delete().eq('id', id))
+    },
+    async listActivity(_projectId, taskId) {
+      const rows = check(await sb.from('task_activity').select('*').eq('task_id', taskId).order('at').order('id')) as Row[]
+      return rows.map((a): Activity => ({
+        id: a.id as number,
+        taskId: a.task_id as number,
+        actorId: (a.actor_id as string | null) ?? null,
+        action: a.action as string,
+        detail: (a.detail as Record<string, unknown>) ?? {},
+        at: a.at as string,
+      }))
+    },
+
+    async addFilter(projectId, name, query, shared) {
+      check(await sb.from('saved_filters').insert({ project_id: projectId, name: name.trim(), query, shared }))
+    },
+    async updateFilter(_projectId, id, patch) {
+      const r: Row = {}
+      if (patch.name !== undefined) r.name = patch.name.trim()
+      if (patch.query !== undefined) r.query = patch.query
+      if (patch.shared !== undefined) r.shared = patch.shared
+      check(await sb.from('saved_filters').update(r).eq('id', id))
+    },
+    async deleteFilter(_projectId, id) {
+      check(await sb.from('saved_filters').delete().eq('id', id))
+    },
+
+    async notifications() {
+      const rows = check(await sb.rpc('my_notifications')) as Row[]
+      return rows.map((n): AppNotification => ({
+        id: n.id as number,
+        projectId: n.project_id as string,
+        projectName: n.project_name as string,
+        taskId: (n.task_id as number | null) ?? null,
+        taskTitle: (n.task_title as string) ?? '',
+        commentId: (n.comment_id as number | null) ?? null,
+        excerpt: (n.excerpt as string) ?? '',
+        actorName: (n.actor_name as string) || 'Professor',
+        kind: n.kind as AppNotification['kind'],
+        createdAt: n.created_at as string,
+        readAt: (n.read_at as string | null) ?? null,
+      }))
+    },
+    async markNotificationsRead(ids, taskId) {
+      check(await sb.rpc('mark_notifications_read', { p_ids: ids, p_task: taskId ?? null }))
+    },
+
     async addSprint(projectId, s) {
-      check(await sb.from('sprints').insert({ project_id: projectId, name: s.name, start_date: s.start, end_date: s.end }))
+      check(await sb.from('sprints').insert({ project_id: projectId, name: s.name, start_date: s.start, end_date: s.end, goal: s.goal ?? '' }))
     },
 
     async updateSprint(_projectId, s) {
-      check(await sb.from('sprints').update({ name: s.name, start_date: s.start, end_date: s.end }).eq('id', s.id))
+      check(await sb.from('sprints').update({ name: s.name, start_date: s.start, end_date: s.end, goal: s.goal ?? '' }).eq('id', s.id))
+    },
+
+    async closeSprint(_projectId, id, nextId) {
+      return toReport(check(await sb.rpc('close_sprint', { p_sprint: id, p_next: nextId }))) as SprintReport
+    },
+    async reopenSprint(_projectId, id) {
+      check(await sb.rpc('reopen_sprint', { p_sprint: id }))
     },
 
     async deleteSprint(_projectId, id) {
@@ -414,6 +615,7 @@ export function createSupabaseRepo(): Repo {
         .channel(`mensagens-${Math.random().toString(36).slice(2)}`)
         .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, onChange)
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'team_messages' }, onChange)
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, onChange)
         .subscribe()
       return () => void sb.removeChannel(ch)
     },

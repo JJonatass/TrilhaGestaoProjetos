@@ -3,10 +3,13 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { DepPicker } from '../components/DepPicker'
+import { TaskChecklist } from '../components/TaskChecklist'
+import { TaskDiscussion } from '../components/TaskDiscussion'
+import { KindIcon } from '../components/TaskBits'
+import { columnOf, hasCustomColumns, projectColumns } from '../lib/columns'
 import { ConfirmButton, Drawer, Field, HintsToggle, initials, personName } from '../components/ui'
-import { dayOfIso, shortDate } from '../lib/dates'
 import { useProject } from '../state/ProjectProvider'
-import { PHASES, PRIORITIES, ROLE_LABEL, STATUSES, type Phase, type Priority, type StatusId, type TaskDraft } from '../types'
+import { KINDS, PHASES, PRIORITIES, ROLE_LABEL, type Phase, type Priority, type StatusId, type TaskDraft } from '../types'
 
 // Dicas exibidas no botão "?" de cada campo
 const H = {
@@ -22,12 +25,17 @@ const H = {
   due: 'Data limite. Depois dela, se a tarefa não estiver em Feito, aparece em vermelho e conta como atrasada.',
   milestoneDate: 'Um marco não tem duração: a data é a do campo Início.',
   milestone: 'Entrega importante que marca uma etapa, como "Protótipo aprovado" ou "Lançamento beta". Não tem duração nem pontos e aparece como losango no cronograma.',
+  kind: 'História: algo que entrega valor para o usuário ("Como aluno, quero reservar monitoria"). Tarefa: trabalho técnico ou de apoio. Bug: algo que deveria funcionar e não funciona.',
+  epic: 'Agrupa tarefas de uma mesma grande entrega (ex.: "Autenticação"). O progresso do épico e a faixa no cronograma vêm das tarefas dele. Crie épicos na aba Equipe.',
+  labels: 'Etiquetas livres para filtrar o quadro (ex.: front, back, ux, urgente). Crie e mude as cores na aba Equipe.',
+  checklist: 'Passos menores dentro da tarefa. O cartão mostra quantos já foram feitos (ex.: 2/4).',
   dependsOn: 'Tarefas que precisam terminar antes desta começar. Geram as setas do cronograma e o caminho crítico. Use a busca para achar pelo nome; a lista vem agrupada por fase, começando pela fase desta tarefa. Itens marcados "criaria ciclo" já dependem desta e não podem ser escolhidos.',
 }
 
-const blank = (status: StatusId): TaskDraft => ({
+const blank = (status: StatusId, columnKey: string | null): TaskDraft => ({
   title: '', description: '', assignees: [], priority: 'media', points: 2, status,
   phase: 'Desenvolvimento', sprintId: null, start: null, due: null, milestone: false, dependsOn: [],
+  kind: 'tarefa', epicId: null, labels: [], columnKey,
 })
 
 export function TaskEditor() {
@@ -36,16 +44,17 @@ export function TaskEditor() {
   const existing = taskId !== null ? snap?.tasks.find((t) => t.id === taskId) : undefined
   const [d, setD] = useState<TaskDraft>(() => {
     if (existing) {
-      const { id: _i, createdAt: _c, createdBy: _b, position: _p, ...rest } = existing
-      void _i; void _c; void _b; void _p
+      const { id: _i, createdAt: _c, createdBy: _b, position: _p, checklist: _k, ...rest } = existing
+      void _i; void _c; void _b; void _p; void _k
       return { ...rest }
     }
-    const draft = blank(editing?.status ?? 'todo')
+    const draft = blank(editing?.status ?? 'todo', editing?.columnKey ?? null)
     // quem cria a tarefa já entra como responsável, se puder
     if (me && canAssign(me) && snap?.members.some((m) => m.id === me)) draft.assignees = [me]
     return draft
   })
   const [saving, setSaving] = useState(false)
+  const [newChecklist, setNewChecklist] = useState<string[]>([])
   const set = <K extends keyof TaskDraft>(k: K, v: TaskDraft[K]) => setD((p) => ({ ...p, [k]: v }))
 
   const blocked = useMemo(() => {
@@ -67,8 +76,7 @@ export function TaskEditor() {
   if (!snap || !editing) return null
 
   const history = snap.history.filter((h) => h.taskId === taskId)
-  const label = (s: StatusId | null) => STATUSES.find((x) => x.id === s)?.label ?? ''
-  const who = (id: string | null) => personName(snap.members.find((m) => m.id === id))
+  const cols = projectColumns(snap.meta)
   const dateError = !!(d.start && d.due && !d.milestone && d.due < d.start)
   const assignees = existing ? existing.assignees : d.assignees
 
@@ -89,7 +97,7 @@ export function TaskEditor() {
       assignees: existing ? existing.assignees : d.assignees,
       due: d.milestone ? d.start : d.due,
     }
-    const ok = await saveTask(existing ? existing.id : null, clean)
+    const ok = await saveTask(existing ? existing.id : null, clean, newChecklist)
     setSaving(false)
     if (ok) closeTask()
   }
@@ -128,6 +136,15 @@ export function TaskEditor() {
       {!readOnly && <HintsToggle />}
 
       <fieldset className="plain" disabled={readOnly}>
+        <Field id="task-kind" label="Tipo" hint={H.kind}>
+          <div id="task-kind" className="seg kind-seg" role="group" aria-label="Tipo de item">
+            {KINDS.map((k) => (
+              <button key={k.id} type="button" aria-pressed={d.kind === k.id} onClick={() => set('kind', k.id)}>
+                <KindIcon kind={k.id} /> {k.label}
+              </button>
+            ))}
+          </div>
+        </Field>
         <Field id="task-title" label="Título" hint={H.title}>
           <input id="task-title" className="input" placeholder="Ex.: Criar tela de login com e-mail e senha" value={d.title} autoFocus={!readOnly} onChange={(e) => set('title', e.target.value)} />
         </Field>
@@ -174,8 +191,16 @@ export function TaskEditor() {
       <fieldset className="plain" disabled={readOnly}>
         <div className="row3">
           <Field id="task-status" label="Coluna" hint={H.status}>
-            <select id="task-status" className="input" value={d.status} onChange={(e) => set('status', e.target.value as StatusId)}>
-              {STATUSES.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+            <select
+              id="task-status"
+              className="input"
+              value={columnOf(d, cols).id}
+              onChange={(e) => {
+                const c = cols.find((x) => x.id === e.target.value)!
+                setD((p) => ({ ...p, status: c.category, columnKey: hasCustomColumns(snap.meta) ? c.id : null }))
+              }}
+            >
+              {cols.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
             </select>
           </Field>
           <Field id="task-phase" label="Fase" hint={H.phase}>
@@ -195,7 +220,13 @@ export function TaskEditor() {
           <Field id="task-sprint" label="Sprint" hint={H.sprint}>
             <select id="task-sprint" className="input" value={d.sprintId ?? ''} onChange={(e) => set('sprintId', e.target.value ? Number(e.target.value) : null)}>
               <option value="">Sem sprint</option>
-              {snap.sprints.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {snap.sprints.filter((s) => !s.closedAt || s.id === d.sprintId).map((s) => <option key={s.id} value={s.id}>{s.name}{s.closedAt ? ' (encerrado)' : ''}</option>)}
+            </select>
+          </Field>
+          <Field id="task-epic" label="Épico" hint={H.epic}>
+            <select id="task-epic" className="input" value={d.epicId ?? ''} onChange={(e) => set('epicId', e.target.value ? Number(e.target.value) : null)}>
+              <option value="">Sem épico</option>
+              {snap.epics.map((ep) => <option key={ep.id} value={ep.id}>{ep.name}</option>)}
             </select>
           </Field>
           <Field id="task-start" label="Início" hint={H.start}>
@@ -216,6 +247,27 @@ export function TaskEditor() {
         </div>
         {dateError && <p className="hint" style={{ color: 'var(--late)', margin: 0 }}>O prazo precisa ser igual ou posterior ao início.</p>}
 
+        <Field id="task-labels" label="Rótulos" hint={H.labels}>
+          <div id="task-labels" className="chips" role="group" aria-label="Rótulos">
+            {snap.labels.length === 0 && <span className="hint">Nenhum rótulo no projeto. Crie na aba Equipe.</span>}
+            {snap.labels.map((l) => {
+              const on = d.labels.includes(l.id)
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  className={`chip label-pick ${on ? 'on' : ''}`}
+                  aria-pressed={on}
+                  style={{ ['--lbl' as string]: l.color }}
+                  onClick={() => set('labels', on ? d.labels.filter((x) => x !== l.id) : [...d.labels, l.id])}
+                >
+                  <i className="dot" style={{ background: l.color }} /> {l.name}
+                </button>
+              )
+            })}
+          </div>
+        </Field>
+
         <Field id="task-deps" label="Depende de" hint={H.dependsOn}>
           <DepPicker
             id="task-deps"
@@ -229,22 +281,13 @@ export function TaskEditor() {
         </Field>
       </fieldset>
 
-      {existing && history.length > 0 && (
-        <div className="field">
-          <span>Histórico de colunas</span>
-          <div className="timeline">
-            <div>Criada em <b>{shortDate(dayOfIso(existing.createdAt))}</b>{existing.createdBy ? ` por ${who(existing.createdBy)}` : ''}</div>
-            {history.map((h) => (
-              <div key={h.id}>
-                {h.from ? <>{label(h.from)} → <b>{label(h.to)}</b></> : <>Entrou em <b>{label(h.to)}</b></>}
-                {' · '}
-                {new Date(h.at).toLocaleString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                {h.changedBy ? ` · ${who(h.changedBy)}` : ''}
-              </div>
-            ))}
-          </div>
-        </div>
+      {!d.milestone && (
+        <Field id="checklist-new" label="Checklist" hint={H.checklist}>
+          <TaskChecklist taskId={existing?.id ?? null} items={existing?.checklist ?? []} draft={newChecklist} onDraft={setNewChecklist} />
+        </Field>
       )}
+
+      {existing && <TaskDiscussion task={existing} history={history} />}
     </Drawer>
   )
 }

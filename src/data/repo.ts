@@ -3,7 +3,8 @@
 // - demoRepo: dados fictícios no navegador, para aulas e testes sem conta.
 
 import type {
-  AccessLists, AdminDefaults, AdminProject, TeamMessage, TeamWall, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
+  AccessLists, Activity, AdminDefaults, AdminProject, AppNotification, ChecklistItem, Epic, FilterQuery, Label,
+  SprintReport, TaskComment, TeamMessage, TeamWall, AdminUser, InboxThread, Message, PendingInvite, Profile, ProjectMeta,
   ProjectSummary, Role, Snapshot, Sprint, StatusId, Task, TaskDraft,
 } from '../types'
 
@@ -40,19 +41,55 @@ export interface Repo {
   // ---- um projeto ----
   loadProject(id: string): Promise<Snapshot>
   subscribeProject(id: string, onChange: () => void): Unsubscribe
-  updateProject(id: string, patch: Partial<Pick<ProjectMeta, 'name' | 'wip' | 'selfAssign'>>): Promise<void>
+  updateProject(id: string, patch: Partial<Pick<ProjectMeta, 'name' | 'wip' | 'selfAssign' | 'columns'>>): Promise<void>
   deleteProject(id: string): Promise<void>
 
   createTask(projectId: string, draft: TaskDraft): Promise<number>
   updateTask(projectId: string, id: number, patch: Partial<TaskDraft & { position: number }>): Promise<void>
-  moveTask(projectId: string, id: number, status: StatusId, position: number): Promise<void>
+  /** columnKey: coluna personalizada de destino (null nas colunas padrão) */
+  moveTask(projectId: string, id: number, status: StatusId, position: number, columnKey?: string | null): Promise<void>
   deleteTask(projectId: string, id: number): Promise<void>
   setAssignee(projectId: string, taskId: number, userId: string, on: boolean): Promise<void>
   setDependencies(projectId: string, taskId: number, deps: number[]): Promise<void>
 
-  addSprint(projectId: string, s: Omit<Sprint, 'id'>): Promise<void>
+  setLabels(projectId: string, taskId: number, labelIds: number[]): Promise<void>
+
+  // checklist (subtarefas)
+  addChecklistItem(projectId: string, taskId: number, title: string): Promise<void>
+  updateChecklistItem(projectId: string, id: number, patch: Partial<Pick<ChecklistItem, 'title' | 'done' | 'position'>>): Promise<void>
+  deleteChecklistItem(projectId: string, id: number): Promise<void>
+
+  // épicos e rótulos
+  addEpic(projectId: string, e: Omit<Epic, 'id'>): Promise<void>
+  updateEpic(projectId: string, e: Epic): Promise<void>
+  deleteEpic(projectId: string, id: number): Promise<void>
+  addLabel(projectId: string, l: Omit<Label, 'id'>): Promise<void>
+  updateLabel(projectId: string, l: Label): Promise<void>
+  deleteLabel(projectId: string, id: number): Promise<void>
+
+  // comentários e atividade de uma tarefa
+  /** false no modo arquivo (sem servidor) */
+  supportsComments?: boolean
+  listComments(projectId: string, taskId: number): Promise<TaskComment[]>
+  addComment(projectId: string, taskId: number, body: string, mentions: string[]): Promise<void>
+  deleteComment(projectId: string, id: number): Promise<void>
+  listActivity(projectId: string, taskId: number): Promise<Activity[]>
+
+  // filtros salvos
+  addFilter(projectId: string, name: string, query: FilterQuery, shared: boolean): Promise<void>
+  updateFilter(projectId: string, id: number, patch: { name?: string; query?: FilterQuery; shared?: boolean }): Promise<void>
+  deleteFilter(projectId: string, id: number): Promise<void>
+
+  // notificações (@menções e comentários nas minhas tarefas)
+  notifications(): Promise<AppNotification[]>
+  markNotificationsRead(ids: number[] | null, taskId?: number): Promise<void>
+
+  addSprint(projectId: string, s: Omit<Sprint, 'id' | 'closedAt' | 'report'>): Promise<void>
   updateSprint(projectId: string, s: Sprint): Promise<void>
   deleteSprint(projectId: string, id: number): Promise<void>
+  /** Encerra o sprint e leva o que sobrou para nextId (ou para fora de sprint) */
+  closeSprint(projectId: string, id: number, nextId: number | null): Promise<SprintReport>
+  reopenSprint(projectId: string, id: number): Promise<void>
 
   invite(projectId: string, email: string, role: Role): Promise<void>
   cancelInvite(projectId: string, inviteId: string): Promise<void>

@@ -37,6 +37,8 @@ export function Dashboard({ snap, onOpen }: { snap: Snapshot; onOpen: (id: numbe
     .sort((a, b) => b.pts - a.pts)
   const maxLoad = Math.max(1, ...load.map((l) => l.pts))
 
+  const bugs = snap.tasks.filter((t) => t.kind === 'bug' && t.status !== 'done')
+  const bugsLate = bugs.filter((t) => isLate(t)).length
   const lampLabel = { verde: 'No prazo', amarelo: 'Atenção', vermelho: 'Em risco' }[health.health]
   const h = {
     health: useHint('ajuda-situacao', 'situação do projeto'),
@@ -86,6 +88,11 @@ export function Dashboard({ snap, onOpen }: { snap: Snapshot; onOpen: (id: numbe
           {h.late.box(HELP.late)}
         </div>
         <div className="kpi">
+          <span className="label">Bugs abertos</span>
+          <span className="value" style={{ color: bugs.length ? 'var(--late)' : undefined }}>{bugs.length}</span>
+          <span className="sub">{bugs.length ? `${bugs.reduce((a, t) => a + t.points, 0)} pts${bugsLate ? ` · ${bugsLate} atrasado${bugsLate > 1 ? 's' : ''}` : ''}` : 'nenhum bug em aberto'}</span>
+        </div>
+        <div className="kpi">
           <span className="label">Lead time{h.lead.button}</span>
           <span className="value">{fmt(times.leadTime)}<small>dias</small></span>
           <span className="sub">criação → feito</span>
@@ -106,6 +113,35 @@ export function Dashboard({ snap, onOpen }: { snap: Snapshot; onOpen: (id: numbe
       </div>
 
       <div className="grid">
+        {snap.epics.length > 0 && (
+          <section className="panel">
+            <div className="panel-head">
+              <div>
+                <h2>Progresso por épico</h2>
+                <p>Pontos concluídos em cada grande entrega. Clique para ver as tarefas abertas.</p>
+              </div>
+            </div>
+            {snap.epics.map((e) => {
+              const items = snap.tasks.filter((t) => t.epicId === e.id && !t.milestone)
+              const tot = items.reduce((a, t) => a + t.points, 0)
+              const done = items.filter((t) => t.status === 'done').reduce((a, t) => a + t.points, 0)
+              const next = items.filter((t) => t.status !== 'done').sort((a, b) => (a.due ?? '9').localeCompare(b.due ?? '9'))[0]
+              return (
+                <div className="phase-row epic-row" key={e.id}>
+                  <span className="epic-name"><i className="epic-dot" style={{ background: e.color }} />{e.name}</span>
+                  <div className="meter"><i style={{ width: `${tot ? (done / tot) * 100 : 0}%`, background: e.color }} /></div>
+                  <span className="num">{tot ? Math.round((done / tot) * 100) : 0}%</span>
+                  {next && (
+                    <button type="button" className="link epic-next" onClick={() => onOpen(next.id)} title="Próxima tarefa aberta deste épico">
+                      próxima: {next.title}
+                    </button>
+                  )}
+                </div>
+              )
+            })}
+          </section>
+        )}
+
         <section className="panel">
           <div className="panel-head">
             <div>

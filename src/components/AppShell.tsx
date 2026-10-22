@@ -8,6 +8,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect } from 'react'
 import { friendlyError } from '../data/repo'
 import { AuthProvider, useAuth } from '../state/AuthProvider'
+import { NotificationBell } from './NotificationBell'
 import { Badge, initials, personName } from './ui'
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -73,6 +74,7 @@ function Frame({ children }: { children: React.ReactNode }) {
             </Link>
           ))}
         </nav>
+        <NotificationBell />
         <Link href="/perfil/" className="me-button" aria-current={pathname === '/perfil' ? 'page' : undefined} title="Meu perfil">
           <span className="avatar">{initials(personName(session!.user))}</span>
           <span className="me-name">{personName(session!.user)}</span>

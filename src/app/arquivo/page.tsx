@@ -19,12 +19,14 @@ import { ProjectProvider, useProject } from '../../state/ProjectProvider'
 import { Dashboard } from '../../views/Dashboard'
 import { Gantt } from '../../views/Gantt'
 import { Kanban } from '../../views/Kanban'
+import PlanejamentoPage from '../projeto/planejamento/page'
 import { Metrics } from '../../views/Metrics'
 import { TaskEditor } from '../../views/TaskEditor'
 
-type Tab = 'quadro' | 'cronograma' | 'metricas' | 'painel'
+type Tab = 'quadro' | 'planejamento' | 'cronograma' | 'metricas' | 'painel'
 const TABS: { id: Tab; label: string }[] = [
   { id: 'quadro', label: 'Quadro' },
+  { id: 'planejamento', label: 'Planejamento' },
   { id: 'cronograma', label: 'Cronograma' },
   { id: 'metricas', label: 'Métricas' },
   { id: 'painel', label: 'Painel' },
@@ -283,7 +285,8 @@ function FileFrame({
 
       <main className="main">
         {tab === 'quadro' && <Kanban />}
-        {tab === 'cronograma' && <Gantt snap={p.snap} onOpen={p.openTask} />}
+        {tab === 'planejamento' && <PlanejamentoPage />}
+        {tab === 'cronograma' && <Gantt snap={p.snap} visible={p.visibleTasks} onOpen={p.openTask} />}
         {tab === 'metricas' && <Metrics snap={p.snap} onOpen={p.openTask} />}
         {tab === 'painel' && <Dashboard snap={p.snap} onOpen={p.openTask} />}
       </main>

@@ -5,7 +5,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { getRepo, type Repo, type Session } from '../data/repo'
-import type { InboxThread, TeamWall } from '../types'
+import type { AppNotification, InboxThread, TeamWall } from '../types'
 
 interface AuthState {
   repo: Repo | null
@@ -16,6 +16,9 @@ interface AuthState {
   walls: TeamWall[]
   /** não lidas somando conversas privadas e murais */
   unread: number
+  /** @menções e comentários nas minhas tarefas */
+  notifications: AppNotification[]
+  unreadNotifications: number
   refreshInbox: () => Promise<void>
   refreshSession: () => Promise<void>
 }
@@ -28,14 +31,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true)
   const [inbox, setInbox] = useState<InboxThread[]>([])
   const [walls, setWalls] = useState<TeamWall[]>([])
+  const [notifications, setNotifications] = useState<AppNotification[]>([])
   const repoRef = useRef<Repo | null>(null)
 
   const refreshInbox = useCallback(async () => {
     const r = repoRef.current
     if (!r) return
-    const [a, b] = await Promise.allSettled([r.inbox(), r.teamInbox()])
+    const [a, b, c] = await Promise.allSettled([r.inbox(), r.teamInbox(), r.notifications()])
     setInbox(a.status === 'fulfilled' ? a.value : [])
     setWalls(b.status === 'fulfilled' ? b.value : [])
+    setNotifications(c.status === 'fulfilled' ? c.value : [])
   }, [])
 
   const refreshSession = useCallback(async () => {
@@ -61,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!repo || !session) {
       setInbox([])
       setWalls([])
+      setNotifications([])
       return
     }
     void refreshInbox()
@@ -80,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const unread = inbox.reduce((s, t) => s + t.unread, 0) + walls.reduce((s, w) => s + w.unread, 0)
 
   return (
-    <Ctx.Provider value={{ repo, session, loading, inbox, walls, unread, refreshInbox, refreshSession }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ repo, session, loading, inbox, walls, unread, notifications, unreadNotifications: notifications.filter((n) => !n.readAt).length, refreshInbox, refreshSession }}>{children}</Ctx.Provider>
   )
 }
 

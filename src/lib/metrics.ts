@@ -144,7 +144,9 @@ export interface BurnPoint {
 
 export function burn(snap: Snapshot, sprint: Sprint): BurnPoint[] {
   const hist = historyByTask(snap.history)
-  const tasks = snap.tasks.filter((t) => t.sprintId === sprint.id)
+  // sprint encerrado: inclui o que sobrou e foi levado para outro sprint
+  const carried = new Set(sprint.report?.carried ?? [])
+  const tasks = snap.tasks.filter((t) => t.sprintId === sprint.id || carried.has(t.id))
   const total = tasks.reduce((s, t) => s + t.points, 0)
   const days = rangeDays(sprint.start, sprint.end)
   const span = Math.max(1, days.length - 1)
@@ -270,4 +272,40 @@ export function projectHealth(snap: Snapshot): { health: Health; reasons: string
 
 export function weekdayShort(day: string): string {
   return ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'][parseDay(day).getDay()]
+}
+
+
+// ---------------------------------------------------------------------------
+// Velocidade: pontos planejados x entregues por sprint
+
+export interface VelocityPoint {
+  sprint: Sprint
+  committed: number
+  completed: number
+  closed: boolean
+}
+
+/** Sprints encerrados (pelo relatório) e o sprint em andamento (pelo estado atual) */
+export function velocity(snap: Snapshot): VelocityPoint[] {
+  const now = today()
+  return [...snap.sprints]
+    .sort((a, b) => a.start.localeCompare(b.start))
+    .filter((s) => s.closedAt || s.start <= now)
+    .map((s) => {
+      if (s.report) return { sprint: s, committed: s.report.committedPoints, completed: s.report.completedPoints, closed: true }
+      const ts = snap.tasks.filter((t) => t.sprintId === s.id && !t.milestone)
+      return {
+        sprint: s,
+        committed: ts.reduce((a, t) => a + t.points, 0),
+        completed: ts.filter((t) => t.status === 'done').reduce((a, t) => a + t.points, 0),
+        closed: !!s.closedAt,
+      }
+    })
+}
+
+/** Média de pontos entregues nos últimos n sprints encerrados */
+export function averageVelocity(points: VelocityPoint[], n = 3): number | null {
+  const closed = points.filter((p) => p.closed).slice(-n)
+  if (!closed.length) return null
+  return closed.reduce((a, p) => a + p.completed, 0) / closed.length
 }

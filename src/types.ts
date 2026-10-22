@@ -37,6 +37,112 @@ export const PRIORITIES: { id: Priority; label: string }[] = [
   { id: 'critica', label: 'Crítica' },
 ]
 
+/** Tipo de item, como no Jira */
+export type Kind = 'historia' | 'tarefa' | 'bug'
+export const KINDS: { id: Kind; label: string; short: string }[] = [
+  { id: 'historia', label: 'História', short: 'H' },
+  { id: 'tarefa', label: 'Tarefa', short: 'T' },
+  { id: 'bug', label: 'Bug', short: 'B' },
+]
+
+/**
+ * Coluna do quadro. Cada coluna pertence a uma das cinco etapas fixas
+ * (category), que alimentam burndown, fluxo cumulativo e tempos.
+ */
+export interface ColumnDef {
+  id: string
+  label: string
+  category: StatusId
+  wip: number | null
+}
+
+export interface Epic {
+  id: number
+  name: string
+  color: string
+  description: string
+  position: number
+}
+
+export interface Label {
+  id: number
+  name: string
+  color: string
+}
+
+export interface ChecklistItem {
+  id: number
+  title: string
+  done: boolean
+  position: number
+  doneBy: string | null
+  doneAt: string | null
+}
+
+export interface TaskComment {
+  id: number
+  taskId: number
+  authorId: string
+  authorName: string
+  body: string
+  mentions: string[]
+  createdAt: string
+}
+
+export interface Activity {
+  id: number
+  taskId: number
+  actorId: string | null
+  action: string
+  detail: Record<string, unknown>
+  at: string
+}
+
+/** Critérios de filtro do quadro e do cronograma */
+export interface FilterQuery {
+  text?: string
+  assignees?: string[] // ids; 'me' = eu; 'none' = sem responsável
+  labels?: number[]
+  epics?: number[] // 0 = sem épico
+  kinds?: Kind[]
+  priorities?: Priority[]
+  sprint?: 'atual' | 'sem' | number
+  due?: 'atrasadas' | 'semana' | 'sem-prazo'
+}
+
+export interface SavedFilter {
+  id: number
+  name: string
+  ownerId: string
+  shared: boolean
+  query: FilterQuery
+}
+
+export interface SprintReport {
+  committedPoints: number
+  completedPoints: number
+  committedTasks: number
+  completedTasks: number
+  completed: number[]
+  carried: number[]
+  bugsOpen: number
+  nextSprint: number | null
+}
+
+export interface AppNotification {
+  id: number
+  projectId: string
+  projectName: string
+  taskId: number | null
+  taskTitle: string
+  commentId: number | null
+  excerpt: string
+  actorName: string
+  kind: 'mention' | 'comment'
+  createdAt: string
+  readAt: string | null
+}
+
 export type Role = 'owner' | 'editor' | 'viewer'
 export const ROLE_LABEL: Record<Role, string> = { owner: 'Criador', editor: 'Editor', viewer: 'Leitor' }
 
@@ -72,6 +178,11 @@ export interface Task {
   due: string | null // AAAA-MM-DD
   milestone: boolean
   dependsOn: number[]
+  kind: Kind
+  epicId: number | null
+  labels: number[] // ids dos rótulos
+  columnKey: string | null // coluna personalizada (null = primeira coluna da etapa)
+  checklist: ChecklistItem[]
   createdAt: string // ISO
   createdBy: string | null
   position: number
@@ -82,6 +193,9 @@ export interface Sprint {
   name: string
   start: string
   end: string
+  goal: string
+  closedAt: string | null
+  report: SprintReport | null
 }
 
 export interface StatusChange {
@@ -103,6 +217,8 @@ export interface ProjectMeta {
   expiresAt: string | null // prazo de existência definido pelo administrador
   driveExportAllowed: boolean // administrador autorizou salvar no Google Drive
   maxMembers: number | null // limite de integrantes definido pelo administrador (null = sem limite)
+  /** colunas personalizadas do quadro (null = as cinco padrão) */
+  columns: ColumnDef[] | null
 }
 
 export interface Snapshot {
@@ -112,6 +228,9 @@ export interface Snapshot {
   tasks: Task[]
   sprints: Sprint[]
   history: StatusChange[]
+  epics: Epic[]
+  labels: Label[]
+  savedFilters: SavedFilter[]
 }
 
 export interface ProjectSummary {
@@ -224,7 +343,7 @@ export interface AccessLists {
   admins: { email: string; registered: boolean; confirmed: boolean; me: boolean }[]
 }
 
-export type TaskDraft = Omit<Task, 'id' | 'createdAt' | 'createdBy' | 'position'>
+export type TaskDraft = Omit<Task, 'id' | 'createdAt' | 'createdBy' | 'position' | 'checklist'>
 
 export interface AdminDefaults {
   expiresAt: string | null

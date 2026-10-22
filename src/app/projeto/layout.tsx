@@ -14,6 +14,7 @@ import { TaskEditor } from '../../views/TaskEditor'
 
 const TABS = [
   { path: '/projeto', label: 'Quadro' },
+  { path: '/projeto/planejamento', label: 'Planejamento' },
   { path: '/projeto/cronograma', label: 'Cronograma' },
   { path: '/projeto/metricas', label: 'Métricas' },
   { path: '/projeto/painel', label: 'Painel' },
@@ -49,6 +50,14 @@ function Frame({ children }: { children: React.ReactNode }) {
   const p = useProject()
   const { inbox, walls } = useAuth()
   const pathname = (usePathname() || '/').replace(/\/$/, '')
+  const params = useSearchParams()
+  // link de aviso (?tarefa=123) abre a tarefa direto
+  const taskParam = params.get('tarefa')
+  const loaded = !!p.snap
+  const { openTask } = p
+  useEffect(() => {
+    if (loaded && taskParam) openTask(Number(taskParam))
+  }, [loaded, taskParam, openTask])
   const [name, setName] = useState('')
   useEffect(() => setName(p.snap?.meta.name ?? ''), [p.snap?.meta.name])
 

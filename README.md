@@ -50,6 +50,16 @@ O app está publicado na **Vercel** (plano gratuito): **https://trilha-gestao-pr
 
 **Mural da equipe:** na aba **Mensagens** de cada projeto, uma conversa do grupo que todos os integrantes (inclusive leitores) e o administrador leem e escrevem, com nome e iniciais de quem escreveu. As mensagens do professor aparecem marcadas. Não lidas somam no aviso da barra superior e aparecem na caixa **Mensagens**. A conversa privada professor ↔ aluno continua ao lado.
 
+**Planejamento no estilo Jira:**
+- *Tipos de item*: tarefa, história, bug e melhoria, com ícone no cartão. Bugs abertos aparecem no Painel.
+- *Épicos*: agrupam tarefas, com progresso no Painel e faixas no cronograma (agrupar por épico, fase ou nenhum).
+- *Checklist (subtarefas)*: itens marcáveis dentro da tarefa, com barra de progresso no cartão.
+- *Rótulos e filtros*: rótulos coloridos por projeto; filtro por texto, tipo, responsável, épico, rótulo, sprint e prazo, compartilhado entre quadro e cronograma. Filtros podem ser salvos (só para você ou para a equipe).
+- *Comentários com @menção*: na tarefa, com aviso no sininho para quem foi mencionado e para os responsáveis. A aba *Atividade* mostra o histórico de alterações.
+- *Colunas personalizáveis*: em **Equipe → Colunas do quadro** o criador renomeia, reordena, cria e remove colunas, cada uma ligada a uma etapa (A fazer, Em andamento, Revisão, Concluído…) que alimenta as métricas, com limite de WIP por coluna.
+- *Sprints*: na aba **Planejamento**, com objetivo, encerramento (as tarefas não concluídas vão para a próxima sprint), relatório da sprint e reabertura. A aba **Métricas** mostra a velocidade por sprint e a previsão de sprints restantes.
+- No modo arquivo do Drive, comentários, filtros salvos e avisos não existem (precisam do servidor).
+
 **Relatório PDF:** botão **Relatório PDF** no topo de qualquer projeto. Gerado no navegador, com resumo, burndown, progresso por fase, equipe, prazos vencidos, todas as tarefas e sprints.
 
 **Salvar no Google Drive (com autorização do admin):** o admin libera por projeto ou para todos. O aluno clica em **Salvar no Drive** e o projeto completo vai para o Drive dele como `Nome.trilha.json` (sem mensagens e convites). Em **Abrir arquivo do Drive** (`/arquivo`), o arquivo abre **sem Supabase e sem conta no sistema**, só com o login do Google: quadro, cronograma, métricas e painel funcionam, e as alterações são salvas de volta no mesmo arquivo.
@@ -82,14 +92,15 @@ Tudo é garantido pelo banco (Row Level Security), não só pela interface. O hi
 ```
 supabase/
   setup.sql               script único para o SQL Editor
-  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe, acesso, mural)
+  migrations/             o mesmo, em etapas (esquema, exemplo, admin, convites, prazo, limpeza, limite de equipe, acesso, mural, recursos do Jira)
   tests/rls.test.mjs      51 testes das regras de acesso num Postgres em memória
   tests/limite.test.mjs   18 testes do limite de integrantes
   tests/mural.test.mjs    16 testes do mural da equipe
   tests/acesso.test.mjs   54 testes de domínios, e-mails liberados, admins, bloqueio e exclusão
+  tests/jira.test.mjs     56 testes de épicos, colunas, checklist, rótulos, comentários, avisos e sprints
 src/
   app/                    rotas: /entrar, / (projetos), /perfil, /mensagens, /admin,
-                          /projeto (quadro, cronograma, métricas, painel, equipe, mensagens)
+                          /projeto (quadro, cronograma, planejamento, métricas, painel, equipe, mensagens)
   data/repo.ts            contrato de dados usado pelo app inteiro
   data/supabaseRepo.ts    implementação com Supabase
   data/demoRepo.ts        implementação de demonstração (sem servidor)

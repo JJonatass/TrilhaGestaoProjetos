@@ -2,13 +2,13 @@
 
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { ColumnsEditor } from '../../../components/ColumnsEditor'
 import { DeleteProjectDialog } from '../../../components/DeleteProjectDialog'
 import { expiryLabel, formatDate } from '../../../lib/expiry'
 import { ConfirmButton, Field, initials, personName, timeAgo } from '../../../components/ui'
-import { addDays, today } from '../../../lib/dates'
 import { useAuth } from '../../../state/AuthProvider'
 import { useProject } from '../../../state/ProjectProvider'
-import { ROLE_LABEL, STATUSES, type Role } from '../../../types'
+import { ROLE_LABEL, type Role } from '../../../types'
 
 export default function EquipePage() {
   const p = useProject()
@@ -20,7 +20,6 @@ export default function EquipePage() {
   const [deleting, setDeleting] = useState(false)
   if (!p.snap || !repo) return null
   const { snap } = p
-  const lastSprint = snap.sprints[snap.sprints.length - 1]
   const siteUrl = typeof window === 'undefined' ? '' : `${window.location.origin}${process.env.NEXT_PUBLIC_BASE_PATH ?? ''}/`
   const limit = snap.meta.maxMembers
   const seatsUsed = snap.members.length + snap.invites.length
@@ -192,76 +191,23 @@ export default function EquipePage() {
           <p className="hint" style={{ margin: '4px 0 12px 26px' }}>
             Desligado: só o criador define quem é responsável por cada tarefa.
           </p>
-          <Field id="wip-todo" label="Limite de WIP por coluna" hint="WIP é o trabalho em andamento. O limite é o máximo de tarefas ao mesmo tempo numa coluna: quando passa, o contador fica vermelho, sinal de gargalo. Deixe vazio para não limitar.">
-            <div className="row3">
-              {STATUSES.filter((s) => s.id !== 'backlog' && s.id !== 'done').map((s) => (
-                <label key={s.id} className="field">
-                  <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>{s.label}</span>
-                  <input
-                    id={`wip-${s.id}`}
-                    className="input num"
-                    type="number"
-                    min={1}
-                    disabled={!p.isOwner}
-                    defaultValue={snap.meta.wip[s.id] ?? ''}
-                    onBlur={(e) => {
-                      const v = Number(e.target.value)
-                      const wip = { ...snap.meta.wip }
-                      if (v > 0) wip[s.id] = v
-                      else delete wip[s.id]
-                      if (JSON.stringify(wip) !== JSON.stringify(snap.meta.wip)) void p.updateProject({ wip })
-                    }}
-                  />
-                </label>
-              ))}
-            </div>
-          </Field>
         </section>
 
-        <section className="panel">
+        <section className="panel span-2">
           <div className="panel-head">
             <div>
-              <h2>Sprints</h2>
-              <p>Usados no burndown, no burnup e na faixa superior do Gantt.</p>
+              <h2>Colunas do quadro</h2>
+              <p>
+                Dê nomes do jeito da equipe (ex.: Revisão de código, Teste) e defina limites de WIP. Cada coluna pertence a uma
+                <b> etapa</b> (Backlog, A fazer, Fazendo, Revisão, Feito), que é o que entra no burndown e no fluxo cumulativo.
+                {p.isOwner ? '' : ' Só o criador altera as colunas.'}
+              </p>
             </div>
           </div>
-          {snap.sprints.length === 0 && <p className="hint">Nenhum sprint cadastrado.</p>}
-          {snap.sprints.map((sp) => (
-            <div className="sprint-row" key={sp.id}>
-              <label className="sprint-field sprint-name">
-                <span>Nome do sprint</span>
-                <input id={`sp-name-${sp.id}`} className="input" defaultValue={sp.name} disabled={!p.canEdit} placeholder="Ex.: Sprint 1 · Protótipo"
-                  onBlur={(e) => e.target.value.trim() && e.target.value !== sp.name && void p.updateSprint({ ...sp, name: e.target.value.trim() })} />
-              </label>
-              <label className="sprint-field">
-                <span>Início</span>
-                <input id={`sp-start-${sp.id}`} className="input" type="date" defaultValue={sp.start} disabled={!p.canEdit}
-                  onBlur={(e) => e.target.value && e.target.value !== sp.start && void p.updateSprint({ ...sp, start: e.target.value })} />
-              </label>
-              <label className="sprint-field">
-                <span>Fim</span>
-                <input id={`sp-end-${sp.id}`} className="input" type="date" defaultValue={sp.end} disabled={!p.canEdit}
-                  onBlur={(e) => e.target.value && e.target.value !== sp.end && void p.updateSprint({ ...sp, end: e.target.value })} />
-              </label>
-              {p.canEdit && (
-                <div className="sprint-remove">
-                  <ConfirmButton className="small" label="Remover" confirmLabel="Confirmar" onConfirm={() => void p.deleteSprint(sp.id)} />
-                </div>
-              )}
-            </div>
-          ))}
-          {p.canEdit && (
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                const start = lastSprint ? addDays(lastSprint.end, 1) : today()
-                void p.addSprint({ name: `Sprint ${snap.sprints.length + 1}`, start, end: addDays(start, 13) })
-              }}
-            >
-              + Adicionar sprint de 2 semanas
-            </button>
-          )}
+          <ColumnsEditor />
+          <p className="hint" style={{ margin: '10px 0 0' }}>
+            WIP é o trabalho em andamento: quando a coluna passa do limite, o contador fica vermelho, sinal de gargalo. Sprints, épicos e rótulos ficam na aba <b>Planejamento</b>.
+          </p>
         </section>
 
         <section className="panel">

@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { HintsToggle, statusColor, useHint, useWidth } from '../components/ui'
 import { HELP } from '../lib/help'
 import { shortDate, today } from '../lib/dates'
-import { burn, cumulativeFlow, flowTimes, projectRange, schedule, type BurnPoint, type CfdPoint } from '../lib/metrics'
+import { averageVelocity, burn, cumulativeFlow, flowTimes, projectRange, schedule, velocity, type BurnPoint, type CfdPoint, type VelocityPoint } from '../lib/metrics'
 import { STATUSES, type Snapshot, type StatusId } from '../types'
 
 const PAD = { l: 38, r: 14, t: 12, b: 26 }
@@ -27,6 +27,10 @@ export function Metrics({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number)
   const range = useMemo(() => projectRange(snap, schedule(snap.tasks)), [snap])
   const cfd = useMemo(() => cumulativeFlow(snap, range.start, range.end), [snap, range])
   const times = useMemo(() => flowTimes(snap), [snap])
+  const vel = useMemo(() => velocity(snap), [snap])
+  const avg = averageVelocity(vel)
+  const backlogPts = snap.tasks.filter((t) => t.status !== 'done' && !t.milestone).reduce((a, t) => a + t.points, 0)
+  const hVel = useHint('ajuda-velocidade', 'velocidade')
 
   const todayPt = burnPts.find((p) => p.day === now) ?? [...burnPts].reverse().find((p) => p.remaining !== null)
   const hBurn = useHint('ajuda-burn', 'burndown e burnup')
@@ -51,7 +55,7 @@ export function Metrics({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number)
             <select id="metrics-sprint" className="input" style={{ width: 'auto' }} value={sprint?.id ?? ''} onChange={(e) => setSprintId(Number(e.target.value))}>
               {snap.sprints.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.name}{s.closedAt ? ' (encerrado)' : ''}
                 </option>
               ))}
             </select>
@@ -85,6 +89,47 @@ export function Metrics({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number)
                     {shortDate(todayPt.day)}: {todayPt.done} de {todayPt.scope} pts feitos
                   </span>
                 )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <div>
+              <div className="title-row"><h2>Velocidade</h2>{hVel.button}</div>
+              <p>Pontos planejados e entregues em cada sprint.</p>
+            </div>
+          </div>
+          {hVel.box(
+            <>
+              <p><b>Velocidade</b> é quantos pontos a equipe entrega por sprint. Ela vem do relatório guardado quando o sprint é encerrado (aba Planejamento). O sprint em andamento aparece com os números de hoje.</p>
+              <p>Use a média dos últimos sprints para planejar o próximo: colocar muito mais pontos do que a média costuma terminar com tarefas sobrando. A previsão divide os pontos que faltam no projeto pela média.</p>
+            </>,
+          )}
+          {vel.length === 0 ? (
+            <p className="empty">A velocidade aparece quando o primeiro sprint começar.</p>
+          ) : (
+            <>
+              <VelocityChart points={vel} />
+              <div className="legend" style={{ marginTop: 8 }}>
+                <span><i style={{ background: 'var(--surface-3)' }} />Planejado</span>
+                <span><i style={{ background: 'var(--st-done)' }} />Entregue</span>
+                <span><i style={{ background: 'var(--st-done)', opacity: 0.45 }} />Sprint em andamento</span>
+              </div>
+              <div className="kpis" style={{ marginTop: 12 }}>
+                <div className="kpi">
+                  <span className="label">Velocidade média</span>
+                  <span className="value">{avg === null ? '—' : `${Math.round(avg * 10) / 10}`}</span>
+                  <span className="sub">{avg === null ? 'encerre um sprint para calcular' : 'pts por sprint (últimos 3 encerrados)'}</span>
+                </div>
+                <div className="kpi">
+                  <span className="label">Falta no projeto</span>
+                  <span className="value">{backlogPts}</span>
+                  <span className="sub">
+                    {avg ? `≈ ${Math.max(1, Math.ceil(backlogPts / avg))} sprint${Math.ceil(backlogPts / avg) > 1 ? 's' : ''} nesse ritmo` : 'pontos em aberto'}
+                  </span>
+                </div>
               </div>
             </>
           )}
@@ -255,3 +300,38 @@ function FlowTable({ times, onOpen }: { times: ReturnType<typeof flowTimes>; onO
   )
 }
 
+
+function VelocityChart({ points }: { points: VelocityPoint[] }) {
+  const [ref, W] = useWidth<HTMLDivElement>(300)
+  const H = 220
+  const maxY = niceMax(Math.max(1, ...points.map((p) => Math.max(p.committed, p.completed))))
+  const iw = W - PAD.l - PAD.r
+  const ih = H - PAD.t - PAD.b
+  const ys = (v: number) => PAD.t + ih - (v / maxY) * ih
+  const slot = iw / points.length
+  const bw = Math.max(6, Math.min(26, slot / 2 - 6))
+  return (
+    <div className="chart" ref={ref}>
+      <svg width={W} height={H} role="img" aria-label="Gráfico de velocidade por sprint">
+        {[0, maxY / 2, maxY].map((v) => (
+          <g key={v}>
+            <line x1={PAD.l} x2={W - PAD.r} y1={ys(v)} y2={ys(v)} stroke="var(--line)" />
+            <text x={PAD.l - 6} y={ys(v) + 3.5} textAnchor="end">{v}</text>
+          </g>
+        ))}
+        {points.map((p, i) => {
+          const cx = PAD.l + slot * i + slot / 2
+          return (
+            <g key={p.sprint.id}>
+              <title>{`${p.sprint.name}: ${p.completed} de ${p.committed} pts${p.closed ? '' : ' (em andamento)'}`}</title>
+              <rect x={cx - bw - 1} y={ys(p.committed)} width={bw} height={Math.max(0, ys(0) - ys(p.committed))} rx={3} fill="var(--surface-3)" />
+              <rect x={cx + 1} y={ys(p.completed)} width={bw} height={Math.max(0, ys(0) - ys(p.completed))} rx={3} fill="var(--st-done)" opacity={p.closed ? 1 : 0.45} />
+              <text x={cx + 1 + bw / 2} y={ys(p.completed) - 4} textAnchor="middle" style={{ fill: 'var(--ink)', fontWeight: 600 }}>{p.completed}</text>
+              <text x={cx} y={H - 8} textAnchor="middle">{p.sprint.name.length > 12 ? `${p.sprint.name.slice(0, 11)}…` : p.sprint.name}</text>
+            </g>
+          )
+        })}
+      </svg>
+    </div>
+  )
+}

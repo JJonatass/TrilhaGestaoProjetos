@@ -2,10 +2,12 @@
 // Imita as regras do banco (papéis, responsáveis, mensagens) para que as
 // telas possam ser usadas em aula sem criar contas.
 
+import { projectColumns, validateColumns } from '../lib/columns'
 import { addDays, today } from '../lib/dates'
 import type {
-  AdminProject, AdminUser, InboxThread, Member, Message, PendingInvite, Phase, Priority,
-  Profile, ProjectMeta, Role, Snapshot, Sprint, StatusChange, StatusId, Task, TeamMessage, TeamWall,
+  Activity, AdminProject, AdminUser, AppNotification, ColumnDef, Epic, InboxThread, Kind, Label, Member, Message, PendingInvite,
+  Phase, Priority, Profile, ProjectMeta, Role, SavedFilter, Snapshot, Sprint, SprintReport, StatusChange, StatusId, Task,
+  TaskComment, TeamMessage, TeamWall,
 } from '../types'
 import type { Repo, Session } from './repo'
 
@@ -26,12 +28,18 @@ interface Db {
   messages: Message[]
   teamMessages?: { id: number; projectId: string; senderId: string; taskId: number | null; body: string; createdAt: string }[]
   teamReads?: Record<string, string> // `${projeto}|${usuário}` → lido até
+  epics: (Epic & { projectId: string })[]
+  labels: (Label & { projectId: string })[]
+  comments: (Omit<TaskComment, 'authorName'> & { projectId: string })[]
+  activity: (Activity & { projectId: string })[]
+  notifications: { id: number; userId: string; projectId: string; taskId: number; commentId: number; actorId: string; kind: 'mention' | 'comment'; createdAt: string; readAt: string | null }[]
+  filters: (SavedFilter & { projectId: string })[]
   seq: number
   sessionUserId: string | null
   defaults: { expiresAt: string | null; driveExport: boolean; maxMembers?: number | null }
 }
 
-const KEY = 'trilha.demo.v2'
+const KEY = 'trilha.demo.v3'
 const U = { jonatas: 'u-jonatas', ana: 'u-ana', bruno: 'u-bruno', carla: 'u-carla', diego: 'u-diego', elisa: 'u-elisa' }
 
 type SeedRow = [string, string, Phase, number, Priority, number | null, number, number[], number | null, boolean, [StatusId, number][], string[]]
@@ -58,6 +66,29 @@ const SAMPLE: SeedRow[] = [
   ['Plano de descontinuação da versão piloto', 'Comunicação, exportação de dados e arquivamento.', 'Fim do ciclo', 2, 'baixa', null, 2, [18], null, false, [['backlog', 25]], []],
 ]
 
+const SPRINT_GOALS = ['Problema validado com os alunos', 'Protótipo testado e base técnica pronta', 'Agenda e lembretes funcionando', 'Beta com a turma piloto']
+// tipo de cada item do exemplo (o resto é tarefa)
+const SAMPLE_KIND: Partial<Record<number, Kind>> = { 9: 'historia', 10: 'historia', 11: 'historia', 12: 'historia' }
+const SAMPLE_EPICS: [string, string, string][] = [
+  ['Descoberta e definição', '#d18b1c', 'Entender o problema da monitoria e validar a proposta.'],
+  ['Experiência do aluno', '#5577b0', 'Telas, agenda, lembretes e painel do monitor.'],
+  ['Plataforma e qualidade', '#2f8f5b', 'Infraestrutura, login, testes e lançamento.'],
+]
+const SAMPLE_EPIC_OF: Partial<Record<number, number>> = {
+  0: 0, 1: 0, 2: 0, 3: 0, 4: 0, 13: 0,
+  5: 1, 6: 1, 7: 1, 10: 1, 11: 1, 12: 1,
+  8: 2, 9: 2, 14: 2, 15: 2, 16: 2, 17: 2, 18: 2, 19: 2,
+}
+const SAMPLE_LABELS: [string, string][] = [['front', '#5577b0'], ['back', '#2f8f5b'], ['ux', '#8a5fc0'], ['infra', '#d18b1c'], ['urgente', '#c0392b']]
+const SAMPLE_TASK_LABELS: Partial<Record<number, string[]>> = {
+  5: ['ux'], 6: ['ux', 'front'], 7: ['ux'], 8: ['infra'], 9: ['back', 'infra'], 10: ['front', 'back', 'urgente'], 11: ['back'], 12: ['front'], 14: ['infra'],
+}
+const SAMPLE_CHECKLIST: Partial<Record<number, [string, boolean][]>> = {
+  10: [['Listar horários livres', true], ['Reservar vaga', true], ['Cancelar reserva', false], ['Tratar fuso horário', false]],
+  11: [['Configurar e-mail de reserva', true], ['Enviar aviso 1 h antes', false]],
+  14: [['Fluxo de reserva', false], ['Fluxo de cancelamento', false], ['Lembrete', false]],
+}
+
 const at = (day: string, minute = 0, hour = 9) => {
   const [y, m, d] = day.split('-').map(Number)
   return new Date(y, m - 1, d, hour, minute).toISOString()
@@ -67,7 +98,7 @@ function seedProject(db: Db, projectId: string, owner: string, peopleIds: Record
   const t0 = addDays(today(), -27)
   const sprintIds = [0, 1, 2, 3].map((i) => {
     const id = ++db.seq
-    db.sprints.push({ id, projectId, name: `Sprint ${i + 1}`, start: addDays(t0, i * 14), end: addDays(t0, i * 14 + 13) })
+    db.sprints.push({ id, projectId, name: `Sprint ${i + 1}`, start: addDays(t0, i * 14), end: addDays(t0, i * 14 + 13), goal: SPRINT_GOALS[i] ?? '', closedAt: null, report: null })
     return id
   })
   const ids: number[] = []
@@ -81,6 +112,7 @@ function seedProject(db: Db, projectId: string, owner: string, peopleIds: Record
       start: start === null ? null : addDays(t0, start),
       due: start === null ? null : addDays(t0, start + Math.max(0, dur - (milestone ? 0 : 1))),
       milestone, createdAt: at(addDays(t0, hist[0][1]), i), createdBy: owner, position: i,
+      kind: SAMPLE_KIND[i] ?? 'tarefa', epicId: null, labels: [], columnKey: null, checklist: [],
     })
     let prev: StatusId | null = null
     hist.forEach(([to, day], k) => {
@@ -91,7 +123,54 @@ function seedProject(db: Db, projectId: string, owner: string, peopleIds: Record
     const people = who.length ? who : []
     people.forEach((p) => peopleIds[p] && db.assignees.push({ projectId, taskId: id, userId: peopleIds[p] }))
   })
+
+  // épicos, rótulos e checklist de exemplo
+  const epicIds = SAMPLE_EPICS.map(([name, color, description], k) => {
+    const eid = ++db.seq
+    db.epics.push({ id: eid, projectId, name, color, description, position: k })
+    return eid
+  })
+  const labelIds: Record<string, number> = {}
+  SAMPLE_LABELS.forEach(([name, color]) => {
+    const lid = ++db.seq
+    labelIds[name] = lid
+    db.labels.push({ id: lid, projectId, name, color })
+  })
+  ids.forEach((tid, i) => {
+    const t = db.tasks.find((x) => x.id === tid)!
+    const e = SAMPLE_EPIC_OF[i]
+    t.epicId = e === undefined ? null : epicIds[e]
+    t.labels = (SAMPLE_TASK_LABELS[i] ?? []).map((n) => labelIds[n])
+    t.checklist = (SAMPLE_CHECKLIST[i] ?? []).map(([title, done], k) => ({
+      id: ++db.seq, title, done, position: k, doneBy: done ? owner : null, doneAt: done ? at(addDays(t0, 20 + k)) : null,
+    }))
+  })
+
+  // o primeiro sprint já foi encerrado, com relatório
+  const s1 = db.sprints.find((x) => x.id === sprintIds[0])!
+  const inS1 = db.tasks.filter((t) => t.sprintId === s1.id)
+  s1.closedAt = at(s1.end, 0, 18)
+  s1.report = {
+    committedPoints: inS1.filter((t) => !t.milestone).reduce((a, t) => a + t.points, 0),
+    completedPoints: inS1.filter((t) => !t.milestone && t.status === 'done').reduce((a, t) => a + t.points, 0),
+    committedTasks: inS1.length,
+    completedTasks: inS1.filter((t) => t.status === 'done').length,
+    completed: inS1.filter((t) => t.status === 'done').map((t) => t.id),
+    carried: inS1.filter((t) => t.status !== 'done').map((t) => t.id),
+    bugsOpen: 0,
+    nextSprint: sprintIds[1],
+  }
+  return { ids, sprintIds, epicIds, labelIds }
 }
+
+const DEMO_COLUMNS: ColumnDef[] = [
+  { id: 'backlog', label: 'Backlog', category: 'backlog', wip: null },
+  { id: 'todo', label: 'A fazer', category: 'todo', wip: null },
+  { id: 'doing', label: 'Desenvolvendo', category: 'doing', wip: 3 },
+  { id: 'revisao-codigo', label: 'Revisão de código', category: 'review', wip: 2 },
+  { id: 'teste', label: 'Teste', category: 'review', wip: null },
+  { id: 'done', label: 'Feito', category: 'done', wip: null },
+]
 
 function initialDb(): Db {
   const now = new Date().toISOString()
@@ -106,11 +185,12 @@ function initialDb(): Db {
     ],
     admins: ['jonatas.junior@gmail.com'],
     projects: [], members: [], invites: [], tasks: [], assignees: [], deps: [], sprints: [], history: [], messages: [],
+    epics: [], labels: [], comments: [], activity: [], notifications: [], filters: [],
     seq: 100, sessionUserId: null,
     defaults: { expiresAt: null, driveExport: false, maxMembers: null },
   }
   const p1 = 'p-monitorias'
-  db.projects.push({ id: p1, name: 'App de Monitorias', ownerId: U.ana, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: at(addDays(today(), -28)), expiresAt: at(addDays(today(), 12), 59, 23), driveExportAllowed: true, maxMembers: 6 })
+  db.projects.push({ id: p1, name: 'App de Monitorias', ownerId: U.ana, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: at(addDays(today(), -28)), expiresAt: at(addDays(today(), 12), 59, 23), driveExportAllowed: true, maxMembers: 6, columns: DEMO_COLUMNS })
   const joined = at(addDays(today(), -27))
   db.members.push(
     { projectId: p1, userId: U.ana, role: 'owner', joinedAt: joined },
@@ -119,14 +199,47 @@ function initialDb(): Db {
     { projectId: p1, userId: U.diego, role: 'editor', joinedAt: joined },
     { projectId: p1, userId: U.elisa, role: 'viewer', joinedAt: joined },
   )
-  seedProject(db, p1, U.ana, { ana: U.ana, bruno: U.bruno, carla: U.carla, diego: U.diego })
+  const seeded = seedProject(db, p1, U.ana, { ana: U.ana, bruno: U.bruno, carla: U.carla, diego: U.diego })
+
+  // um bug aberto no sprint atual
+  {
+    const id = ++db.seq
+    const created = at(addDays(today(), -3))
+    db.tasks.push({
+      id, projectId: p1, title: 'Horário da monitoria aparece em UTC', description: 'Na agenda, 14h aparece como 17h. Acontece só no celular.',
+      phase: 'Desenvolvimento', points: 2, priority: 'alta', status: 'doing', sprintId: seeded.sprintIds[1],
+      start: addDays(today(), -3), due: addDays(today(), 1), milestone: false, createdAt: created, createdBy: U.carla, position: 99,
+      kind: 'bug', epicId: seeded.epicIds[1], labels: [seeded.labelIds.front, seeded.labelIds.urgente], columnKey: null,
+      checklist: [{ id: ++db.seq, title: 'Reproduzir no Android', done: true, position: 0, doneBy: U.carla, doneAt: created }, { id: ++db.seq, title: 'Corrigir conversão de fuso', done: false, position: 1, doneBy: null, doneAt: null }],
+    })
+    db.history.push({ id: ++db.seq, projectId: p1, taskId: id, from: null, to: 'todo', at: created, changedBy: U.carla })
+    db.history.push({ id: ++db.seq, projectId: p1, taskId: id, from: 'todo', to: 'doing', at: at(addDays(today(), -2)), changedBy: U.diego })
+    db.assignees.push({ projectId: p1, taskId: id, userId: U.diego })
+    db.deps.push({ projectId: p1, taskId: seeded.ids[10], dependsOn: id })
+  }
+  // "Notificações de lembrete" está na coluna Teste (etapa Revisão)
+  db.tasks.find((t) => t.id === seeded.ids[11])!.columnKey = 'teste'
+
+  // comentários com menção e aviso não lido
+  {
+    const agendaId = seeded.ids[10]
+    const c1 = ++db.seq
+    db.comments.push({ id: c1, projectId: p1, taskId: agendaId, authorId: U.ana, body: '@Diego Ramos o problema do fuso virou um bug separado. Dá para fechar a reserva primeiro?', mentions: [U.diego], createdAt: new Date(Date.now() - 5 * 3600_000).toISOString() })
+    db.notifications.push({ id: ++db.seq, userId: U.diego, projectId: p1, taskId: agendaId, commentId: c1, actorId: U.ana, kind: 'mention', createdAt: new Date(Date.now() - 5 * 3600_000).toISOString(), readAt: null })
+    db.notifications.push({ id: ++db.seq, userId: U.bruno, projectId: p1, taskId: agendaId, commentId: c1, actorId: U.ana, kind: 'comment', createdAt: new Date(Date.now() - 5 * 3600_000).toISOString(), readAt: null })
+    db.comments.push({ id: ++db.seq, projectId: p1, taskId: agendaId, authorId: U.diego, body: 'Dá sim. Fecho a reserva hoje e pego o bug amanhã.', mentions: [], createdAt: new Date(Date.now() - 4 * 3600_000).toISOString() })
+  }
+
+  // filtros salvos
+  db.filters.push({ id: ++db.seq, projectId: p1, name: 'Bugs abertos', ownerId: U.ana, shared: true, query: { kinds: ['bug'] } })
+  db.filters.push({ id: ++db.seq, projectId: p1, name: 'Minhas tarefas', ownerId: U.ana, shared: false, query: { assignees: ['me'] } })
 
   const p2 = 'p-semana'
-  db.projects.push({ id: p2, name: 'Site da Semana Acadêmica', ownerId: U.bruno, wip: { doing: 2 }, selfAssign: true, createdAt: at(addDays(today(), -6)), expiresAt: null, driveExportAllowed: false, maxMembers: null })
+  db.projects.push({ id: p2, name: 'Site da Semana Acadêmica', ownerId: U.bruno, wip: { doing: 2 }, selfAssign: true, createdAt: at(addDays(today(), -6)), expiresAt: null, driveExportAllowed: false, maxMembers: null, columns: null })
   db.members.push({ projectId: p2, userId: U.bruno, role: 'owner', joinedAt: at(addDays(today(), -6)) })
   const t = (title: string, status: StatusId, phase: Phase, d: number) => {
     const id = ++db.seq
-    db.tasks.push({ id, projectId: p2, title, description: '', phase, points: 3, priority: 'media', status, sprintId: null, start: addDays(today(), d), due: addDays(today(), d + 3), milestone: false, createdAt: at(addDays(today(), -5)), createdBy: U.bruno, position: id })
+    db.tasks.push({ id, projectId: p2, title, description: '', phase, points: 3, priority: 'media', status, sprintId: null, start: addDays(today(), d), due: addDays(today(), d + 3), milestone: false, createdAt: at(addDays(today(), -5)), createdBy: U.bruno, position: id, kind: 'tarefa', epicId: null, labels: [], columnKey: null, checklist: [] })
     db.history.push({ id: ++db.seq, projectId: p2, taskId: id, from: null, to: status, at: at(addDays(today(), -5)), changedBy: U.bruno })
     db.assignees.push({ projectId: p2, taskId: id, userId: U.bruno })
   }
@@ -215,6 +328,17 @@ export function createDemoRepo(): Repo {
   const session = (): Session | null => (me() ? { user: { id: me()!.id, email: me()!.email, fullName: me()!.fullName }, isAdmin: isAdmin() } : null)
   const emitAuth = () => authListeners.forEach((f) => f(session()))
   const projectOf = (taskId: number) => db.tasks.find((t) => t.id === taskId)?.projectId
+  // coluna personalizada: a etapa segue a coluna
+  const applyColumn = (projectId: string, id: number, key: string) => {
+    const t = db.tasks.find((x) => x.id === id)!
+    const p = db.projects.find((x) => x.id === projectId)!
+    const col = projectColumns(p).find((c) => c.id === key)
+    if (!col) { t.columnKey = null; return }
+    t.columnKey = p.columns ? key : null
+    t.status = col.category
+  }
+  const logAct = (projectId: string, taskId: number, action: string, detail: Record<string, unknown>) =>
+    db.activity.push({ id: ++db.seq, projectId, taskId, actorId: db.sessionUserId, action, detail, at: new Date().toISOString() })
 
   return {
     mode: 'demo',
@@ -267,7 +391,7 @@ export function createDemoRepo(): Repo {
     async createProject(name, withSample) {
       const id = `p-${++db.seq}`
       const uid = db.sessionUserId!
-      db.projects.push({ id, name, ownerId: uid, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: new Date().toISOString(), expiresAt: db.defaults.expiresAt, driveExportAllowed: db.defaults.driveExport, maxMembers: db.defaults.maxMembers ?? null })
+      db.projects.push({ id, name, ownerId: uid, wip: { doing: 3, review: 2 }, selfAssign: true, createdAt: new Date().toISOString(), expiresAt: db.defaults.expiresAt, driveExportAllowed: db.defaults.driveExport, maxMembers: db.defaults.maxMembers ?? null, columns: null })
       db.members.push({ projectId: id, userId: uid, role: 'owner', joinedAt: new Date().toISOString() })
       if (withSample) seedProject(db, id, uid, { ana: uid, bruno: uid, carla: uid, diego: uid })
       changed()
@@ -315,8 +439,11 @@ export function createDemoRepo(): Repo {
             dependsOn: db.deps.filter((d) => d.taskId === t.id).map((d) => d.dependsOn),
           }
         }),
-        sprints: db.sprints.filter((s) => s.projectId === id).map(({ id: sid, name, start, end }) => ({ id: sid, name, start, end })).sort((a, b) => a.start.localeCompare(b.start)),
+        sprints: db.sprints.filter((s) => s.projectId === id).map(({ projectId: _p, ...sp }): Sprint => { void _p; return sp }).sort((a, b) => a.start.localeCompare(b.start)),
         history: db.history.filter((h) => h.projectId === id).map(({ projectId: _p, ...h }) => { void _p; return h }).sort((a, b) => a.at.localeCompare(b.at)),
+        epics: db.epics.filter((e) => e.projectId === id).map(({ projectId: _p, ...e }) => { void _p; return e }).sort((a, b) => a.position - b.position || a.id - b.id),
+        labels: db.labels.filter((l) => l.projectId === id).map(({ projectId: _p, ...l }) => { void _p; return l }).sort((a, b) => a.name.localeCompare(b.name)),
+        savedFilters: db.filters.filter((f) => f.projectId === id && (f.ownerId === db.sessionUserId || f.shared)).map(({ projectId: _p, ...f }) => { void _p; return f }),
       }
       return delay(JSON.parse(JSON.stringify(snap)) as Snapshot)
     },
@@ -329,8 +456,17 @@ export function createDemoRepo(): Repo {
     async updateProject(id, patch) {
       if (role(id) !== 'owner') deny()
       const p = db.projects.find((x) => x.id === id)!
-      const { name, wip, selfAssign } = patch
-      Object.assign(p, Object.fromEntries(Object.entries({ name, wip, selfAssign }).filter(([, v]) => v !== undefined)))
+      const { name, wip, selfAssign, columns } = patch
+      if (columns) {
+        const err = validateColumns(columns)
+        if (err) throw new Error(err)
+      }
+      Object.assign(p, Object.fromEntries(Object.entries({ name, wip, selfAssign, columns }).filter(([, v]) => v !== undefined)))
+      if (columns !== undefined) {
+        // coluna removida: cartões voltam para a primeira coluna da etapa
+        const keys = (columns ?? []).map((c) => c.id)
+        db.tasks.forEach((t) => { if (t.projectId === id && t.columnKey && !keys.includes(t.columnKey)) t.columnKey = null })
+      }
       changed(id)
     },
     async deleteProject(id) {
@@ -350,8 +486,12 @@ export function createDemoRepo(): Repo {
         id, projectId, title: d.title, description: d.description, priority: d.priority, points: d.points, status: d.status,
         phase: d.phase, sprintId: d.sprintId, start: d.start, due: d.due, milestone: d.milestone, createdAt,
         createdBy: db.sessionUserId, position: Date.now() / 1e6,
+        kind: d.kind ?? 'tarefa', epicId: d.epicId ?? null, labels: [...(d.labels ?? [])], columnKey: null, checklist: [],
       })
-      db.history.push({ id: ++db.seq, projectId, taskId: id, from: null, to: d.status, at: createdAt, changedBy: db.sessionUserId })
+      if (d.columnKey) applyColumn(projectId, id, d.columnKey)
+      const st = db.tasks.find((x) => x.id === id)!.status
+      db.history.push({ id: ++db.seq, projectId, taskId: id, from: null, to: st, at: createdAt, changedBy: db.sessionUserId })
+      logAct(projectId, id, 'criou', { kind: d.kind ?? 'tarefa' })
       d.dependsOn.forEach((x) => db.deps.push({ projectId, taskId: id, dependsOn: x }))
       for (const u of d.assignees) await this.setAssignee(projectId, id, u, true)
       changed(projectId)
@@ -360,18 +500,40 @@ export function createDemoRepo(): Repo {
     async updateTask(projectId, id, patch) {
       if (!canEdit(projectId)) deny()
       const t = db.tasks.find((x) => x.id === id)!
-      const { assignees: _a, dependsOn: _d, ...rest } = patch as Partial<Task>
-      void _a; void _d
-      if (rest.status && rest.status !== t.status) {
-        db.history.push({ id: ++db.seq, projectId, taskId: id, from: t.status, to: rest.status, at: new Date().toISOString(), changedBy: db.sessionUserId })
+      const { assignees: _a, dependsOn: _d, labels: _l, checklist: _c, ...rest } = patch as Partial<Task>
+      void _a; void _d; void _l; void _c
+      const before = { ...t }
+      if (rest.columnKey !== undefined) {
+        const key = rest.columnKey
+        delete rest.columnKey
+        Object.assign(t, rest)
+        if (key) applyColumn(projectId, id, key)
+        else t.columnKey = null
+      } else {
+        if (rest.status && rest.status !== t.status) t.columnKey = null
+        Object.assign(t, rest)
       }
-      Object.assign(t, rest)
+      if (t.status !== before.status) {
+        db.history.push({ id: ++db.seq, projectId, taskId: id, from: before.status, to: t.status, at: new Date().toISOString(), changedBy: db.sessionUserId })
+      }
+      const name = (list: { id: number; name: string }[], x: number | null) => list.find((y) => y.id === x)?.name ?? null
+      const fields: [keyof typeof t, string][] = [['title', 'title'], ['kind', 'kind'], ['priority', 'priority'], ['points', 'points'], ['start', 'start'], ['due', 'due'], ['phase', 'phase']]
+      for (const [k, campo] of fields) if (t[k] !== before[k]) logAct(projectId, id, 'campo', { campo, de: before[k], para: t[k] })
+      if (t.description !== before.description) logAct(projectId, id, 'campo', { campo: 'description' })
+      if (t.sprintId !== before.sprintId) logAct(projectId, id, 'campo', { campo: 'sprint', de: name(db.sprints, before.sprintId), para: name(db.sprints, t.sprintId) })
+      if (t.epicId !== before.epicId) logAct(projectId, id, 'campo', { campo: 'epic', de: name(db.epics, before.epicId), para: name(db.epics, t.epicId) })
+      if (t.status !== before.status || t.columnKey !== before.columnKey) logAct(projectId, id, 'coluna', { de: before.columnKey ?? before.status, para: t.columnKey ?? t.status })
       changed(projectId)
     },
-    async moveTask(projectId, id, status, position) { return this.updateTask(projectId, id, { status, position }) },
+    async moveTask(projectId, id, status, position, columnKey = null) {
+      return this.updateTask(projectId, id, columnKey ? { position, columnKey } : { status, position, columnKey: null })
+    },
     async deleteTask(projectId, id) {
       if (!canEdit(projectId)) deny()
       db.tasks = db.tasks.filter((t) => t.id !== id)
+      db.comments = db.comments.filter((c) => c.taskId !== id)
+      db.activity = db.activity.filter((a) => a.taskId !== id)
+      db.notifications = db.notifications.filter((n) => n.taskId !== id)
       db.assignees = db.assignees.filter((a) => a.taskId !== id)
       db.deps = db.deps.filter((d) => d.taskId !== id && d.dependsOn !== id)
       changed(projectId)
@@ -381,8 +543,10 @@ export function createDemoRepo(): Repo {
       const allowed = role(projectId) === 'owner' || (userId === db.sessionUserId && canEdit(projectId) && p.selfAssign)
       if (!allowed) deny()
       if (!db.members.some((m) => m.projectId === projectId && m.userId === userId)) throw new Error('O responsável precisa ser integrante do projeto')
+      const had = db.assignees.some((a) => a.taskId === taskId && a.userId === userId)
       db.assignees = db.assignees.filter((a) => !(a.taskId === taskId && a.userId === userId))
       if (on) db.assignees.push({ projectId: projectOf(taskId) ?? projectId, taskId, userId })
+      if (had !== on) logAct(projectId, taskId, on ? 'responsavel_entrou' : 'responsavel_saiu', { nome: db.users.find((u) => u.id === userId)?.fullName ?? '' })
       changed(projectId)
     },
     async setDependencies(projectId, taskId, deps) {
@@ -391,8 +555,173 @@ export function createDemoRepo(): Repo {
       deps.forEach((x) => db.deps.push({ projectId, taskId, dependsOn: x }))
       changed(projectId)
     },
-    async addSprint(projectId, s) { if (!canEdit(projectId)) deny(); db.sprints.push({ ...s, id: ++db.seq, projectId }); changed(projectId) },
-    async updateSprint(projectId, s) { if (!canEdit(projectId)) deny(); Object.assign(db.sprints.find((x) => x.id === s.id)!, s); changed(projectId) },
+    async addSprint(projectId, s) { if (!canEdit(projectId)) deny(); db.sprints.push({ ...s, goal: s.goal ?? '', closedAt: null, report: null, id: ++db.seq, projectId }); changed(projectId) },
+    async updateSprint(projectId, s) {
+      if (!canEdit(projectId)) deny()
+      const cur = db.sprints.find((x) => x.id === s.id)!
+      Object.assign(cur, { name: s.name, start: s.start, end: s.end, goal: s.goal ?? '' })
+      changed(projectId)
+    },
+    async closeSprint(projectId, id, nextId) {
+      if (!canEdit(projectId)) deny()
+      const sp = db.sprints.find((x) => x.id === id && x.projectId === projectId)
+      if (!sp) throw new Error('Sprint não encontrado ou sem permissão')
+      if (sp.closedAt) throw new Error('Este sprint já foi encerrado')
+      if (nextId !== null && !db.sprints.some((x) => x.id === nextId && x.projectId === projectId && !x.closedAt && x.id !== id)) {
+        throw new Error('Escolha um sprint aberto do mesmo projeto')
+      }
+      const ts = db.tasks.filter((t) => t.sprintId === id)
+      const report: SprintReport = {
+        committedPoints: ts.filter((t) => !t.milestone).reduce((a, t) => a + t.points, 0),
+        completedPoints: ts.filter((t) => !t.milestone && t.status === 'done').reduce((a, t) => a + t.points, 0),
+        committedTasks: ts.length,
+        completedTasks: ts.filter((t) => t.status === 'done').length,
+        completed: ts.filter((t) => t.status === 'done').map((t) => t.id),
+        carried: ts.filter((t) => t.status !== 'done').map((t) => t.id),
+        bugsOpen: ts.filter((t) => t.kind === 'bug' && t.status !== 'done').length,
+        nextSprint: nextId,
+      }
+      ts.filter((t) => t.status !== 'done').forEach((t) => { t.sprintId = nextId })
+      sp.closedAt = new Date().toISOString()
+      sp.report = report
+      changed(projectId)
+      return report
+    },
+    async reopenSprint(projectId, id) {
+      if (!canEdit(projectId)) deny()
+      db.sprints.find((x) => x.id === id)!.closedAt = null
+      changed(projectId)
+    },
+
+    async setLabels(projectId, taskId, labelIds) {
+      if (!canEdit(projectId)) deny()
+      const t = db.tasks.find((x) => x.id === taskId)!
+      const nm = (lid: number) => db.labels.find((l) => l.id === lid)?.name ?? ''
+      labelIds.filter((x) => !t.labels.includes(x)).forEach((x) => logAct(projectId, taskId, 'rotulo_entrou', { nome: nm(x) }))
+      t.labels.filter((x) => !labelIds.includes(x)).forEach((x) => logAct(projectId, taskId, 'rotulo_saiu', { nome: nm(x) }))
+      t.labels = [...labelIds]
+      changed(projectId)
+    },
+    async addChecklistItem(projectId, taskId, title) {
+      if (!canEdit(projectId)) deny()
+      const t = db.tasks.find((x) => x.id === taskId)!
+      t.checklist.push({ id: ++db.seq, title: title.trim(), done: false, position: Date.now() / 1e6, doneBy: null, doneAt: null })
+      logAct(projectId, taskId, 'checklist_novo', { item: title.trim() })
+      changed(projectId)
+    },
+    async updateChecklistItem(projectId, id, patch) {
+      if (!canEdit(projectId)) deny()
+      const t = db.tasks.find((x) => x.checklist.some((c) => c.id === id))!
+      const it = t.checklist.find((c) => c.id === id)!
+      if (patch.done !== undefined && patch.done !== it.done) {
+        it.doneBy = patch.done ? db.sessionUserId : null
+        it.doneAt = patch.done ? new Date().toISOString() : null
+        logAct(projectId, t.id, patch.done ? 'checklist_feito' : 'checklist_reaberto', { item: it.title })
+      }
+      Object.assign(it, patch)
+      changed(projectId)
+    },
+    async deleteChecklistItem(projectId, id) {
+      if (!canEdit(projectId)) deny()
+      const t = db.tasks.find((x) => x.checklist.some((c) => c.id === id))
+      if (t) t.checklist = t.checklist.filter((c) => c.id !== id)
+      changed(projectId)
+    },
+
+    async addEpic(projectId, e) { if (!canEdit(projectId)) deny(); db.epics.push({ ...e, name: e.name.trim(), id: ++db.seq, projectId }); changed(projectId) },
+    async updateEpic(projectId, e) { if (!canEdit(projectId)) deny(); Object.assign(db.epics.find((x) => x.id === e.id)!, e); changed(projectId) },
+    async deleteEpic(projectId, id) {
+      if (!canEdit(projectId)) deny()
+      db.epics = db.epics.filter((x) => x.id !== id)
+      db.tasks.forEach((t) => { if (t.epicId === id) t.epicId = null })
+      changed(projectId)
+    },
+    async addLabel(projectId, l) {
+      if (!canEdit(projectId)) deny()
+      if (db.labels.some((x) => x.projectId === projectId && x.name.trim().toLowerCase() === l.name.trim().toLowerCase())) throw new Error('Já existe um rótulo com esse nome.')
+      db.labels.push({ ...l, name: l.name.trim(), id: ++db.seq, projectId })
+      changed(projectId)
+    },
+    async updateLabel(projectId, l) {
+      if (!canEdit(projectId)) deny()
+      if (db.labels.some((x) => x.projectId === projectId && x.id !== l.id && x.name.trim().toLowerCase() === l.name.trim().toLowerCase())) throw new Error('Já existe um rótulo com esse nome.')
+      Object.assign(db.labels.find((x) => x.id === l.id)!, { name: l.name.trim(), color: l.color })
+      changed(projectId)
+    },
+    async deleteLabel(projectId, id) {
+      if (!canEdit(projectId)) deny()
+      db.labels = db.labels.filter((x) => x.id !== id)
+      db.tasks.forEach((t) => { t.labels = t.labels.filter((x) => x !== id) })
+      changed(projectId)
+    },
+
+    supportsComments: true,
+    async listComments(projectId, taskId) {
+      if (!role(projectId) && !isAdmin()) deny()
+      return delay(db.comments.filter((c) => c.taskId === taskId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)).map(({ projectId: _p, ...c }): TaskComment => {
+        void _p
+        return { ...c, authorName: db.users.find((u) => u.id === c.authorId)?.fullName ?? 'Professor' }
+      }))
+    },
+    async addComment(projectId, taskId, body, mentions) {
+      if (!role(projectId) && !isAdmin()) deny()
+      const uid = db.sessionUserId!
+      const valid = [...new Set(mentions)].filter((m) => m !== uid && (db.members.some((x) => x.projectId === projectId && x.userId === m) || db.admins.includes(db.users.find((u) => u.id === m)?.email ?? '')))
+      const id = ++db.seq
+      const createdAt = new Date().toISOString()
+      db.comments.push({ id, projectId, taskId, authorId: uid, body: body.trim(), mentions: valid, createdAt })
+      valid.forEach((m) => db.notifications.push({ id: ++db.seq, userId: m, projectId, taskId, commentId: id, actorId: uid, kind: 'mention', createdAt, readAt: null }))
+      db.assignees.filter((a) => a.taskId === taskId && a.userId !== uid && !valid.includes(a.userId))
+        .forEach((a) => db.notifications.push({ id: ++db.seq, userId: a.userId, projectId, taskId, commentId: id, actorId: uid, kind: 'comment', createdAt, readAt: null }))
+      save(); msgListeners.forEach((f) => f()); changed(projectId)
+    },
+    async deleteComment(projectId, id) {
+      const c = db.comments.find((x) => x.id === id)
+      if (!c || c.authorId !== db.sessionUserId) deny()
+      db.comments = db.comments.filter((x) => x.id !== id)
+      db.notifications = db.notifications.filter((n) => n.commentId !== id)
+      changed(projectId)
+    },
+    async listActivity(projectId, taskId) {
+      if (!role(projectId) && !isAdmin()) deny()
+      return delay(db.activity.filter((a) => a.taskId === taskId).map(({ projectId: _p, ...a }) => { void _p; return a }).sort((a, b) => a.at.localeCompare(b.at) || a.id - b.id))
+    },
+
+    async addFilter(projectId, name, query, shared) {
+      if (!role(projectId) && !isAdmin()) deny()
+      db.filters.push({ id: ++db.seq, projectId, name: name.trim(), ownerId: db.sessionUserId!, shared, query })
+      changed(projectId)
+    },
+    async updateFilter(projectId, id, patch) {
+      const f = db.filters.find((x) => x.id === id)
+      if (!f || f.ownerId !== db.sessionUserId) deny()
+      Object.assign(f!, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)))
+      changed(projectId)
+    },
+    async deleteFilter(projectId, id) {
+      const f = db.filters.find((x) => x.id === id)
+      if (!f || f.ownerId !== db.sessionUserId) deny()
+      db.filters = db.filters.filter((x) => x.id !== id)
+      changed(projectId)
+    },
+
+    async notifications() {
+      const uid = db.sessionUserId
+      return delay(db.notifications.filter((n) => n.userId === uid && (role(n.projectId) || isAdmin())).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((n): AppNotification => ({
+        id: n.id, projectId: n.projectId, projectName: db.projects.find((p) => p.id === n.projectId)?.name ?? '',
+        taskId: n.taskId, taskTitle: db.tasks.find((t) => t.id === n.taskId)?.title ?? '', commentId: n.commentId,
+        excerpt: (db.comments.find((c) => c.id === n.commentId)?.body ?? '').slice(0, 160),
+        actorName: db.users.find((u) => u.id === n.actorId)?.fullName ?? 'Professor', kind: n.kind, createdAt: n.createdAt, readAt: n.readAt,
+      })))
+    },
+    async markNotificationsRead(ids, taskId) {
+      const uid = db.sessionUserId
+      let n = 0
+      db.notifications.forEach((x) => {
+        if (x.userId === uid && !x.readAt && (!ids || ids.includes(x.id)) && (taskId === undefined || x.taskId === taskId)) { x.readAt = new Date().toISOString(); n++ }
+      })
+      if (n) { save(); msgListeners.forEach((f) => f()) }
+    },
     async deleteSprint(projectId, id) {
       if (!canEdit(projectId)) deny()
       db.sprints = db.sprints.filter((s) => s.id !== id)

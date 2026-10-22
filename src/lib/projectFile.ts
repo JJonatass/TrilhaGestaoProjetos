@@ -3,7 +3,7 @@
 import type { Snapshot } from '../types'
 
 export const FILE_FORMAT = 'trilha-projeto'
-export const FILE_VERSION = 1
+export const FILE_VERSION = 2
 export const FILE_SUFFIX = '.trilha.json'
 
 export interface ProjectFile {
@@ -16,8 +16,8 @@ export interface ProjectFile {
 }
 
 export function toProjectFile(snap: Snapshot, exportedBy: string): ProjectFile {
-  // Convites e mensagens privadas não vão para o arquivo
-  const projeto: Snapshot = { ...snap, invites: [] }
+  // Convites, mensagens, comentários e filtros salvos não vão para o arquivo
+  const projeto: Snapshot = { ...snap, invites: [], savedFilters: [] }
   return {
     formato: FILE_FORMAT,
     versao: FILE_VERSION,
@@ -46,7 +46,22 @@ export function parseProjectFile(text: string): ProjectFile {
   p.meta.expiresAt ??= null
   p.meta.driveExportAllowed ??= true
   p.meta.maxMembers ??= null
-  p.tasks = p.tasks.map((t) => ({ ...t, assignees: t.assignees ?? [], dependsOn: t.dependsOn ?? [] }))
+  p.meta.columns ??= null
+  p.epics ??= []
+  p.labels ??= []
+  p.savedFilters = []
+  p.sprints = p.sprints.map((s) => ({ ...s, goal: s.goal ?? '', closedAt: s.closedAt ?? null, report: s.report ?? null }))
+  // arquivos da versão 1 não têm tipo, épico, rótulos nem checklist
+  p.tasks = p.tasks.map((t) => ({
+    ...t,
+    assignees: t.assignees ?? [],
+    dependsOn: t.dependsOn ?? [],
+    kind: t.kind ?? 'tarefa',
+    epicId: t.epicId ?? null,
+    labels: t.labels ?? [],
+    columnKey: t.columnKey ?? null,
+    checklist: t.checklist ?? [],
+  }))
   return f as ProjectFile
 }
 

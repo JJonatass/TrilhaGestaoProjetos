@@ -1,22 +1,26 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { FilterBar } from '../components/FilterBar'
+import { KindIcon } from '../components/TaskBits'
 import { statusColor, useHint } from '../components/ui'
 import { HELP } from '../lib/help'
 import { addDays, diffDays, parseDay, rangeDays, shortDate, today, weekday } from '../lib/dates'
 import { criticalPath, isLate, projectRange, schedule } from '../lib/metrics'
-import { PHASES, STATUSES, type Snapshot, type Task } from '../types'
+import { PHASES, STATUSES, type Epic, type Snapshot, type Task } from '../types'
 
 type Zoom = 'dia' | 'semana' | 'mes'
 const DAY_W: Record<Zoom, number> = { dia: 30, semana: 14, mes: 6 }
 const ROW_H = 34
 const MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
-type Row = { kind: 'group'; label: string } | { kind: 'task'; task: Task }
+type Group = 'fase' | 'epico' | 'nenhum'
+type Row = { kind: 'group'; label: string; epic?: Epic; tasks: Task[] } | { kind: 'task'; task: Task }
 
-export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) => void }) {
+/** visible: tarefas que passam no filtro (o cálculo de datas usa todas) */
+export function Gantt({ snap, visible, onOpen }: { snap: Snapshot; visible: Task[]; onOpen: (id: number) => void }) {
   const [zoom, setZoom] = useState<Zoom>('dia')
-  const [grouped, setGrouped] = useState(true)
+  const [group, setGroup] = useState<Group>(snap.epics.length ? 'epico' : 'fase')
   const [showCritical, setShowCritical] = useState(true)
   const [labelW, setLabelW] = useState(250)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -44,16 +48,21 @@ export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) =
 
   const rows: Row[] = useMemo(() => {
     const byStart = (a: Task, b: Task) => (sched.get(a.id)!.start).localeCompare(sched.get(b.id)!.start) || a.id - b.id
-    if (!grouped) return [...snap.tasks].sort(byStart).map((task) => ({ kind: 'task' as const, task }))
+    if (group === 'nenhum') return [...visible].sort(byStart).map((task) => ({ kind: 'task' as const, task }))
     const out: Row[] = []
-    for (const phase of PHASES) {
-      const items = snap.tasks.filter((t) => t.phase === phase).sort(byStart)
-      if (!items.length) continue
-      out.push({ kind: 'group', label: phase })
-      items.forEach((task) => out.push({ kind: 'task', task }))
+    const push = (label: string, items: Task[], epic?: Epic) => {
+      if (!items.length) return
+      out.push({ kind: 'group', label, epic, tasks: items })
+      items.sort(byStart).forEach((task) => out.push({ kind: 'task', task }))
+    }
+    if (group === 'epico') {
+      for (const e of snap.epics) push(e.name, visible.filter((t) => t.epicId === e.id), e)
+      push('Sem épico', visible.filter((t) => t.epicId === null || !snap.epics.some((e) => e.id === t.epicId)))
+    } else {
+      for (const phase of PHASES) push(phase, visible.filter((t) => t.phase === phase))
     }
     return out
-  }, [snap.tasks, grouped, sched])
+  }, [visible, group, sched, snap.epics])
 
   const rowIndex = new Map<number, number>()
   rows.forEach((r, i) => r.kind === 'task' && rowIndex.set(r.task.id, i))
@@ -107,6 +116,7 @@ export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) =
 
   return (
     <div className="page">
+      <FilterBar />
       <div className="toolbar">
         <div className="seg" role="group" aria-label="Zoom">
           {(['dia', 'semana', 'mes'] as Zoom[]).map((z) => (
@@ -116,8 +126,12 @@ export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) =
           ))}
         </div>
         <label className="check">
-          <input id="gantt-group" type="checkbox" checked={grouped} onChange={(e) => setGrouped(e.target.checked)} />
-          Agrupar por fase
+          Agrupar por
+          <select id="gantt-group" className="input" value={group} onChange={(e) => setGroup(e.target.value as Group)}>
+            <option value="epico">Épico</option>
+            <option value="fase">Fase</option>
+            <option value="nenhum">Sem agrupar</option>
+          </select>
         </label>
         <label className="check">
           <input id="gantt-critical" type="checkbox" checked={showCritical} onChange={(e) => setShowCritical(e.target.checked)} />
@@ -138,6 +152,8 @@ export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) =
       {hG.box(HELP.gantt)}
       {snap.tasks.length === 0 ? (
         <p className="empty">Crie tarefas no quadro e o cronograma aparece aqui automaticamente.</p>
+      ) : visible.length === 0 ? (
+        <p className="empty">Nenhuma tarefa com os filtros escolhidos.</p>
       ) : (
         <div className="gantt-wrap" ref={wrapRef} style={{ ['--label-w' as string]: `${labelW}px` }}>
           <div className="gantt" style={{ width: labelW + width }}>
@@ -200,10 +216,7 @@ export function Gantt({ snap, onOpen }: { snap: Snapshot; onOpen: (id: number) =
 
               {rows.map((r, i) =>
                 r.kind === 'group' ? (
-                  <div key={`g-${r.label}`} className="g-row group" style={{ position: 'relative', zIndex: 1 }}>
-                    <div className="g-label group">{r.label}</div>
-                    <div className="g-track" style={{ width, background: 'transparent' }} />
-                  </div>
+                  <GroupRow key={`g-${r.label}`} row={r} width={width} dayW={dayW} x={x} sched={sched} />
                 ) : (
                   <GanttRow
                     key={r.task.id}
@@ -271,6 +284,7 @@ function GanttRow({
     <div className="g-row" style={{ position: 'relative', zIndex: 1 }}>
       <div className="g-label" onClick={() => onOpen(t.id)} title={t.title}>
         <span className="dot" style={{ background: statusColor(t.status) }} />
+        {!t.milestone && <KindIcon kind={t.kind} />}
         <span className="t" style={{ color: late ? 'var(--late)' : undefined }}>{t.title}</span>
       </div>
       <div className="g-track" style={{ width }}>
@@ -289,6 +303,44 @@ function GanttRow({
             onClick={() => onOpen(t.id)}
           >
             {w > 70 ? t.title : ''}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Linha de grupo. Para épico, mostra a faixa do período das tarefas e o progresso em pontos. */
+function GroupRow({ row, width, dayW, x, sched }: {
+  row: Extract<Row, { kind: 'group' }>
+  width: number
+  dayW: number
+  x: (d: string) => number
+  sched: Map<number, { start: string; end: string; estimated: boolean }>
+}) {
+  const spans = row.tasks.map((t) => sched.get(t.id)).filter(Boolean) as { start: string; end: string }[]
+  const start = spans.reduce((m, s) => (s.start < m ? s.start : m), spans[0]?.start ?? '')
+  const end = spans.reduce((m, s) => (s.end > m ? s.end : m), spans[0]?.end ?? '')
+  const total = row.tasks.filter((t) => !t.milestone).reduce((a, t) => a + t.points, 0)
+  const done = row.tasks.filter((t) => !t.milestone && t.status === 'done').reduce((a, t) => a + t.points, 0)
+  const pct = total ? Math.round((done / total) * 100) : 0
+  const left = start ? x(start) : 0
+  const w = start ? (diffDays(start, end) + 1) * dayW : 0
+  return (
+    <div className="g-row group" style={{ position: 'relative', zIndex: 1 }}>
+      <div className="g-label group" title={row.epic ? `Épico: ${row.label} · ${pct}% dos pontos concluídos` : row.label}>
+        {row.epic && <span className="epic-dot" style={{ background: row.epic.color }} />}
+        <span className="t">{row.label}</span>
+        {row.epic && <span className="hint mono" style={{ marginLeft: 'auto' }}>{pct}%</span>}
+      </div>
+      <div className="g-track" style={{ width, background: 'transparent' }}>
+        {row.epic && start && (
+          <div
+            className="epic-band"
+            style={{ left, width: Math.max(8, w - 2), ['--epic' as string]: row.epic.color }}
+            title={`${row.label}: ${shortDate(start)} → ${shortDate(end)} · ${done}/${total} pts`}
+          >
+            <i style={{ width: `${pct}%` }} />
           </div>
         )}
       </div>
