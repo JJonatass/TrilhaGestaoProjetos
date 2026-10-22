@@ -18,6 +18,7 @@ export default function ProjetosPage() {
   const [sample, setSample] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [createError, setCreateError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!repo) return
@@ -34,14 +35,23 @@ export default function ProjetosPage() {
   useEffect(() => void load(), [load])
 
   const create = async () => {
-    if (!repo || !name.trim()) return
+    if (busy) return
+    if (!name.trim()) {
+      setCreateError('Dê um nome ao projeto antes de criar.')
+      document.getElementById('new-project-name')?.focus()
+      return
+    }
+    if (!repo) {
+      setCreateError('Sua sessão ainda está carregando. Tente de novo em instantes.')
+      return
+    }
     setBusy(true)
-    setError(null)
+    setCreateError(null)
     try {
       const id = await repo.createProject(name.trim(), sample)
       router.push(`/projeto/?id=${id}`)
     } catch (e) {
-      setError(friendlyError(e))
+      setCreateError(friendlyError(e))
       setBusy(false)
     }
   }
@@ -134,7 +144,7 @@ export default function ProjetosPage() {
           >
             <h2>Novo projeto</h2>
             <Field id="new-project-name" label="Nome" hint="O nome do produto ou da solução que a equipe vai construir. Pode ser alterado depois, clicando no nome dentro do projeto.">
-              <input id="new-project-name" className="input" placeholder="Ex.: App de caronas da FICR" value={name} onChange={(e) => setName(e.target.value)} />
+              <input id="new-project-name" className="input" placeholder="Ex.: App de caronas da FICR" value={name} onChange={(e) => { setName(e.target.value); setCreateError(null) }} />
             </Field>
             <Field id="new-project-sample" label="Conteúdo inicial" hint="Cria 20 tarefas fictícias, da ideação ao fim do ciclo, com sprints e histórico, para ver o quadro e os gráficos funcionando. Você pode apagá-las depois.">
               <label className="check">
@@ -142,9 +152,10 @@ export default function ProjetosPage() {
                 Começar com tarefas de exemplo
               </label>
             </Field>
-            <button type="submit" className="btn primary" disabled={busy || !name.trim()}>
+            <button type="submit" className="btn primary" disabled={busy} aria-describedby={createError ? 'new-project-error' : undefined}>
               {busy ? 'Criando…' : 'Criar projeto'}
             </button>
+            {createError && <p id="new-project-error" className="form-error" role="alert" style={{ margin: 0 }}>{createError}</p>}
           </form>
         </div>
       )}

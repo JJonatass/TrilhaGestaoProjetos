@@ -182,7 +182,8 @@ export function createSupabaseRepo(): Repo {
 
     async createProject(name, withSample) {
       const { data: u } = await sb.auth.getUser()
-      const row = check(await sb.from('projects').insert({ name, owner_id: u.user!.id }).select('id').single()) as Row
+      if (!u.user) throw new Error('Sua sessão expirou. Saia e entre de novo para criar o projeto.')
+      const row = check(await sb.from('projects').insert({ name, owner_id: u.user.id }).select('id').single()) as Row
       const id = row.id as string
       if (withSample) check(await sb.rpc('seed_sample_project', { p: id }))
       return id
